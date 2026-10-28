@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useSearchParams } from "react-router-dom"
-import { differenceInCalendarDays, format } from "date-fns"
+import { eachDayOfInterval, format, isWeekend } from "date-fns"
 import type { DateRange } from "react-day-picker"
 import { th } from "react-day-picker/locale"
 import { CalendarIcon, CalendarPlusIcon, CheckIcon, HeartPulseIcon, PalmtreeIcon, BriefcaseIcon, XIcon } from "lucide-react"
@@ -50,12 +50,14 @@ function NewLeaveDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
     }
   }, [open])
 
-  const days = range?.from ? differenceInCalendarDays(range.to ?? range.from, range.from) + 1 : 0
+  // Count working days only: weekends inside the range are not deducted from leave
+  const days = range?.from ? eachDayOfInterval({ start: range.from, end: range.to ?? range.from }).filter((d) => !isWeekend(d)).length : 0
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
     const next: typeof errors = {}
     if (!range?.from) next.range = "กรุณาเลือกวันที่ลา"
+    else if (days === 0) next.range = "ช่วงที่เลือกเป็นวันหยุดเสาร์-อาทิตย์ทั้งหมด"
     if (reason.trim().length < 3) next.reason = "กรุณาระบุเหตุผล"
     setErrors(next)
     if (Object.keys(next).length || !range?.from) return
@@ -118,11 +120,11 @@ function NewLeaveDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
                         ? `${formatDate(format(range.from, "yyyy-MM-dd"))} – ${formatDate(format(range.to, "yyyy-MM-dd"))}`
                         : formatDate(format(range.from, "yyyy-MM-dd"))
                       : "เลือกช่วงวันที่"}
-                    {days > 0 && <span className="ml-auto text-primary">{days} วัน</span>}
+                    {range?.from && <span className="ml-auto text-primary">{days} วันทำการ</span>}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="range" selected={range} onSelect={setRange} numberOfMonths={1} locale={th} defaultMonth={new Date(2026, 10)} />
+                  <Calendar mode="range" selected={range} onSelect={setRange} numberOfMonths={1} locale={th} />
                 </PopoverContent>
               </Popover>
             </FormItem>
@@ -346,7 +348,10 @@ export default function LeavePage() {
             total={filtered.length}
             page={safePage}
             pageSize={pageSize}
-            onPageChange={setPage}
+            onPageChange={(p) => {
+              setPage(p)
+              setSelected(new Set())
+            }}
             onPageSizeChange={(s) => {
               setPageSize(s)
               setPage(1)

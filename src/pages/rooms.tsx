@@ -13,7 +13,7 @@ import { FormItem, PageHeader } from "@/components/shared/misc"
 import { Tag } from "@/components/shared/tag"
 import { type Booking, rooms } from "@/data/mock"
 import { useAuth } from "@/lib/auth"
-import { formatDate } from "@/lib/format"
+import { formatDate, todayISO } from "@/lib/format"
 import { newId, useStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 
@@ -34,7 +34,6 @@ const blockColors = [
   "bg-destructive/15 text-destructive border-destructive/40",
 ]
 
-const TODAY = "2026-10-28"
 
 function BookDialog({
   open,
@@ -165,6 +164,7 @@ function BookingBlock({ b, colorIdx, onDelete }: { b: Booking; colorIdx: number;
 }
 
 export default function RoomsPage() {
+  const TODAY = todayISO()
   const { state, dispatch } = useStore()
   const [date, setDate] = React.useState(TODAY)
   const [open, setOpen] = React.useState(false)

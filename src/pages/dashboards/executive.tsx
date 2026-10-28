@@ -67,6 +67,20 @@ function marginTone(m: number) {
   return "text-warning"
 }
 
+type Sort = { key: SortKey; dir: "asc" | "desc" }
+
+function SortHead({ k, label, sort, onSort, className }: { k: SortKey; label: string; sort: Sort; onSort: (k: SortKey) => void; className?: string }) {
+  const Icon = sort.key !== k ? ArrowUpDownIcon : sort.dir === "asc" ? ArrowUpIcon : ArrowDownIcon
+  return (
+    <TableHead className={className}>
+      <button className={cn("inline-flex items-center gap-1 hover:text-foreground", sort.key === k && "text-foreground")} onClick={() => onSort(k)}>
+        {label}
+        <Icon className="size-3.5" />
+      </button>
+    </TableHead>
+  )
+}
+
 function ProjectSheet({ project, onClose }: { project: Project | null; onClose: () => void }) {
   return (
     <Sheet open={!!project} onOpenChange={(o) => !o && onClose()}>
@@ -144,7 +158,8 @@ export default function ExecutiveDashboard() {
   const [year, setYear] = React.useState("all")
   const [status, setStatus] = React.useState<"all" | ProjectStatus>("all")
   const [q, setQ] = React.useState("")
-  const [sort, setSort] = React.useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "profit", dir: "desc" })
+  const [sort, setSort] = React.useState<Sort>({ key: "profit", dir: "desc" })
+  const onSort = (k: SortKey) => setSort((s) => ({ key: k, dir: s.key === k && s.dir === "desc" ? "asc" : "desc" }))
   const [viewing, setViewing] = React.useState<Project | null>(null)
 
   // Year filter = projects whose contract was signed (started) in that year
@@ -186,21 +201,6 @@ export default function ExecutiveDashboard() {
   const rowTotals = {
     value: rows.reduce((s, p) => s + p.value, 0),
     cost: rows.reduce((s, p) => s + p.cost, 0),
-  }
-
-  const SortHead = ({ k, label, className }: { k: SortKey; label: string; className?: string }) => {
-    const Icon = sort.key !== k ? ArrowUpDownIcon : sort.dir === "asc" ? ArrowUpIcon : ArrowDownIcon
-    return (
-      <TableHead className={className}>
-        <button
-          className={cn("inline-flex items-center gap-1 hover:text-foreground", sort.key === k && "text-foreground")}
-          onClick={() => setSort((s) => ({ key: k, dir: s.key === k && s.dir === "desc" ? "asc" : "desc" }))}
-        >
-          {label}
-          <Icon className="size-3.5" />
-        </button>
-      </TableHead>
-    )
   }
 
   return (
@@ -407,13 +407,13 @@ export default function ExecutiveDashboard() {
             <Table>
               <TableHeader className="bg-muted/60">
                 <TableRow>
-                  <SortHead k="name" label="โครงการ" />
+                  <SortHead sort={sort} onSort={onSort} k="name" label="โครงการ" />
                   <TableHead className="hidden md:table-cell">สถานะ</TableHead>
-                  <SortHead k="value" label="มูลค่าสัญญา" className="text-right" />
+                  <SortHead sort={sort} onSort={onSort} k="value" label="มูลค่าสัญญา" className="text-right" />
                   <TableHead className="hidden text-right lg:table-cell">ต้นทุน</TableHead>
-                  <SortHead k="profit" label="กำไร" className="text-right" />
-                  <SortHead k="margin" label="% กำไร" className="hidden text-right sm:table-cell" />
-                  <SortHead k="progress" label="ความคืบหน้า" className="hidden w-40 xl:table-cell" />
+                  <SortHead sort={sort} onSort={onSort} k="profit" label="กำไร" className="text-right" />
+                  <SortHead sort={sort} onSort={onSort} k="margin" label="% กำไร" className="hidden text-right sm:table-cell" />
+                  <SortHead sort={sort} onSort={onSort} k="progress" label="ความคืบหน้า" className="hidden w-40 xl:table-cell" />
                 </TableRow>
               </TableHeader>
               <TableBody>

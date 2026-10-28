@@ -28,6 +28,7 @@ const AuthContext = React.createContext<{
   user: User | null
   login: (email: string, role: Role) => void
   switchRole: (role: Role) => void
+  updateProfile: (patch: Partial<Pick<User, "name">>) => void
   logout: () => void
 } | null>(null)
 
@@ -70,12 +71,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
+  const updateProfile = React.useCallback((patch: Partial<Pick<User, "name">>) => {
+    setUser((prev) => {
+      if (!prev) return prev
+      const u = { ...prev, ...patch }
+      persist(u)
+      return u
+    })
+  }, [])
+
   const logout = React.useCallback(() => {
     setUser(null)
     persist(null)
   }, [])
 
-  return <AuthContext.Provider value={{ user, login, switchRole, logout }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ user, login, switchRole, updateProfile, logout }}>{children}</AuthContext.Provider>
 }
 
 export function useAuth() {

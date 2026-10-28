@@ -1,3 +1,4 @@
+import * as React from "react"
 import { NavLink, useLocation, useNavigate } from "react-router-dom"
 import { ChevronsUpDownIcon, LogOutIcon, SettingsIcon, UserIcon } from "lucide-react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -23,9 +24,11 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar"
 import { BrandMark, Wordmark } from "@/components/shared/brand"
 import { type Role, roleLabel, useAuth } from "@/lib/auth"
+import { initials } from "@/lib/format"
 import { useStore } from "@/lib/store"
 import { findNav, navGroups } from "./nav"
 
@@ -35,6 +38,12 @@ export function AppSidebar() {
   const { user, logout, switchRole } = useAuth()
   const { state } = useStore()
   const active = findNav(pathname)
+  const { isMobile, setOpenMobile } = useSidebar()
+
+  // On phones the sidebar is an overlay sheet: close it once a link navigates
+  React.useEffect(() => {
+    if (isMobile) setOpenMobile(false)
+  }, [pathname, isMobile, setOpenMobile])
   const pendingLeaves = state.leaves.filter((l) => l.status === "pending").length
 
   return (
@@ -85,7 +94,7 @@ export function AppSidebar() {
               <DropdownMenuTrigger asChild>
                 <SidebarMenuButton size="lg" className="data-[state=open]:bg-sidebar-accent">
                   <Avatar className="size-8 rounded-lg">
-                    <AvatarFallback className="rounded-lg bg-primary/10 text-primary">AD</AvatarFallback>
+                    <AvatarFallback className="rounded-lg bg-primary/10 text-primary">{user ? initials(user.name.replace(/s.*/, ""), user.name.split(" ")[1]) : "?"}</AvatarFallback>
                   </Avatar>
                   <div className="grid flex-1 text-left leading-tight">
                     <span className="truncate font-medium">{user?.name}</span>

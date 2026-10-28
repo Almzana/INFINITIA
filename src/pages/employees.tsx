@@ -49,11 +49,11 @@ import { ElPagination } from "@/components/shared/el-pagination"
 import { EmptyState, FormItem, PageHeader } from "@/components/shared/misc"
 import { Tag, type TagType } from "@/components/shared/tag"
 import { departments, type Employee, type EmployeeStatus, employeeStatusLabel } from "@/data/mock"
-import { formatCurrency, formatDate, initials } from "@/lib/format"
+import { downloadCsv, formatCurrency, formatDate, initials } from "@/lib/format"
 import { newId, useStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 
-export const statusTag: Record<EmployeeStatus, TagType> = {
+const statusTag: Record<EmployeeStatus, TagType> = {
   active: "success",
   probation: "primary",
   leave: "warning",
@@ -92,8 +92,10 @@ function EmployeeFormDialog({
   React.useEffect(() => {
     if (!open) return
     setErrors({})
-    setForm(initial ?? { ...emptyForm, code: `EMP${1001 + state.employees.length + Math.floor(Math.random() * 50)}` })
-  }, [open, initial, state.employees.length])
+    // Next free code after the highest existing EMPxxxx
+    const maxCode = Math.max(1000, ...state.employees.map((e) => Number(e.code.replace(/D/g, "")) || 0))
+    setForm(initial ?? { ...emptyForm, code: `EMP${maxCode + 1}` })
+  }, [open, initial, state.employees])
 
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }))
 
@@ -339,6 +341,8 @@ export default function EmployeesPage() {
     e?.preventDefault()
     setApplied({ keyword, dept, status })
     setPage(1)
+    // Don't keep rows selected that the new filter hides (they would be deleted invisibly)
+    setSelected(new Set())
   }
   const reset = () => {
     setKeyword("")
@@ -346,21 +350,14 @@ export default function EmployeesPage() {
     setStatus("all")
     setApplied({ keyword: "", dept: "all", status: "all" })
     setPage(1)
+    setSelected(new Set())
   }
 
   const exportCsv = () => {
-    const header = ["รหัส", "ชื่อ", "นามสกุล", "ชื่อเล่น", "อีเมล", "เบอร์โทร", "ฝ่าย", "ตำแหน่ง", "สถานะ", "วันเริ่มงาน"]
-    const lines = filtered.map((e) =>
-      [e.code, e.firstName, e.lastName, e.nickname, e.email, e.phone, e.department, e.position, employeeStatusLabel[e.status], e.startDate]
-        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
-        .join(","),
-    )
-    const blob = new Blob(["﻿" + [header.join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8" })
-    const a = document.createElement("a")
-    a.href = URL.createObjectURL(blob)
-    a.download = "employees.csv"
-    a.click()
-    URL.revokeObjectURL(a.href)
+    downloadCsv("employees.csv", [
+      ["รหัส", "ชื่อ", "นามสกุล", "ชื่อเล่น", "อีเมล", "เบอร์โทร", "ฝ่าย", "ตำแหน่ง", "สถานะ", "วันเริ่มงาน"],
+      ...filtered.map((e) => [e.code, e.firstName, e.lastName, e.nickname, e.email, e.phone, e.department, e.position, employeeStatusLabel[e.status], e.startDate]),
+    ])
     toast.success(`ส่งออก ${filtered.length} รายการแล้ว`)
   }
 

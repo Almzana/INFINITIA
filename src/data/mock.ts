@@ -156,14 +156,23 @@ export const rooms: Room[] = [
   { id: "r5", name: "ห้องน่าน", capacity: 4, floor: 4, facilities: ["ทีวี", "VDO Conference"] },
 ]
 
+// Demo bookings are placed on today / tomorrow so the schedule never looks empty
+const dayOffset = (n: number) => {
+  const d = new Date()
+  d.setDate(d.getDate() + n)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+const TODAY = dayOffset(0)
+const TOMORROW = dayOffset(1)
+
 export const bookings: Booking[] = [
-  { id: "b1", roomId: "r1", title: "ประชุมติดตามโครงการประจำเดือน", date: "2026-10-28", start: "09:00", end: "11:00", owner: "Project Director" },
-  { id: "b2", roomId: "r2", title: "Design Review โครงการบ้านพักอากาศ", date: "2026-10-28", start: "10:00", end: "11:30", owner: "ทีมออกแบบภายใน" },
-  { id: "b3", roomId: "r4", title: "สัมภาษณ์สถาปนิก", date: "2026-10-28", start: "13:00", end: "14:00", owner: "ฝ่ายบุคคล" },
-  { id: "b4", roomId: "r1", title: "อบรม Revit / BIM", date: "2026-10-28", start: "14:00", end: "16:30", owner: "ฝ่ายสถาปัตยกรรม" },
-  { id: "b5", roomId: "r3", title: "1:1 Meeting", date: "2026-10-28", start: "15:00", end: "15:30", owner: "Senior Architect" },
-  { id: "b6", roomId: "r5", title: "ประชุมผู้รับเหมา", date: "2026-10-28", start: "11:00", end: "12:00", owner: "ฝ่ายก่อสร้าง" },
-  { id: "b7", roomId: "r2", title: "นำเสนอแบบลูกค้า", date: "2026-10-29", start: "09:30", end: "10:30", owner: "ฝ่ายการตลาด" },
+  { id: "b1", roomId: "r1", title: "ประชุมติดตามโครงการประจำเดือน", date: TODAY, start: "09:00", end: "11:00", owner: "Project Director" },
+  { id: "b2", roomId: "r2", title: "Design Review โครงการบ้านพักอากาศ", date: TODAY, start: "10:00", end: "11:30", owner: "ทีมออกแบบภายใน" },
+  { id: "b3", roomId: "r4", title: "สัมภาษณ์สถาปนิก", date: TODAY, start: "13:00", end: "14:00", owner: "ฝ่ายบุคคล" },
+  { id: "b4", roomId: "r1", title: "อบรม Revit / BIM", date: TODAY, start: "14:00", end: "16:30", owner: "ฝ่ายสถาปัตยกรรม" },
+  { id: "b5", roomId: "r3", title: "1:1 Meeting", date: TODAY, start: "15:00", end: "15:30", owner: "Senior Architect" },
+  { id: "b6", roomId: "r5", title: "ประชุมผู้รับเหมา", date: TODAY, start: "11:00", end: "12:00", owner: "ฝ่ายก่อสร้าง" },
+  { id: "b7", roomId: "r2", title: "นำเสนอแบบลูกค้า", date: TOMORROW, start: "09:30", end: "10:30", owner: "ฝ่ายการตลาด" },
 ]
 
 export const headcountTrend = [

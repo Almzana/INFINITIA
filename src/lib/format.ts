@@ -26,3 +26,20 @@ export function formatMillion(n: number, digits = 1) {
 export function formatPercent(ratio: number, digits = 1) {
   return `${(ratio * 100).toFixed(digits)}%`
 }
+
+/** Today's date as yyyy-MM-dd in local time */
+export function todayISO() {
+  return format(new Date(), "yyyy-MM-dd")
+}
+
+/** Download text as a UTF-8 CSV that Excel opens with Thai characters intact. */
+export function downloadCsv(filename: string, rows: string[][]) {
+  const body = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n")
+  const blob = new Blob(["﻿" + body], { type: "text/csv;charset=utf-8" })
+  const a = document.createElement("a")
+  a.href = URL.createObjectURL(blob)
+  a.download = filename
+  a.click()
+  // Revoking synchronously can cancel the download in some browsers
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+}

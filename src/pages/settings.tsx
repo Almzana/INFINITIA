@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { FormItem, PageHeader } from "@/components/shared/misc"
 import { useAuth } from "@/lib/auth"
+import { initials } from "@/lib/format"
 import { useStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 
@@ -23,7 +24,7 @@ const notificationOptions = [
 ]
 
 export default function SettingsPage() {
-  const { user } = useAuth()
+  const { user, updateProfile } = useAuth()
   const { dispatch } = useStore()
   const { theme, setTheme } = useTheme()
   const [name, setName] = React.useState(user?.name ?? "")
@@ -50,7 +51,7 @@ export default function SettingsPage() {
             <CardContent className="space-y-6">
               <div className="flex items-center gap-4">
                 <Avatar className="size-16">
-                  <AvatarFallback className="bg-primary/10 text-xl text-primary">AD</AvatarFallback>
+                  <AvatarFallback className="bg-primary/10 text-xl text-primary">{initials(name.split(" ")[0] ?? "", name.split(" ")[1])}</AvatarFallback>
                 </Avatar>
                 <div className="space-y-1">
                   <Button variant="outline" size="sm" onClick={() => toast.info("ฟีเจอร์อัปโหลดรูปพร้อมเชื่อมต่อ API")}>
@@ -76,8 +77,18 @@ export default function SettingsPage() {
               </div>
             </CardContent>
             <CardFooter className="justify-end gap-2 border-t">
-              <Button variant="outline">ยกเลิก</Button>
-              <Button onClick={() => toast.success("บันทึกโปรไฟล์แล้ว")}>บันทึก</Button>
+              <Button variant="outline" onClick={() => setName(user?.name ?? "")}>
+                ยกเลิก
+              </Button>
+              <Button
+                onClick={() => {
+                  if (!name.trim()) return toast.error("กรุณากรอกชื่อที่แสดง")
+                  updateProfile({ name: name.trim() })
+                  toast.success("บันทึกโปรไฟล์แล้ว")
+                }}
+              >
+                บันทึก
+              </Button>
             </CardFooter>
           </Card>
         </TabsContent>

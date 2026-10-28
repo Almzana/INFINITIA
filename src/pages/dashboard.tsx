@@ -20,7 +20,7 @@ import { Tag } from "@/components/shared/tag"
 import { PageHeader, StatCard } from "@/components/shared/misc"
 import { activities, departments, headcountTrend, leaveTypeLabel, rooms } from "@/data/mock"
 import { useAuth } from "@/lib/auth"
-import { formatDate, initials } from "@/lib/format"
+import { formatDate, initials, todayISO } from "@/lib/format"
 import { useEmployeeMap, useStore } from "@/lib/store"
 
 const trendConfig = {
@@ -51,7 +51,8 @@ export default function DashboardPage() {
   const active = state.employees.filter((e) => e.status !== "resigned")
   const pending = state.leaves.filter((l) => l.status === "pending")
   const onLeaveToday = state.employees.filter((e) => e.status === "leave").length
-  const todayBookings = state.bookings.filter((b) => b.date === "2026-10-28")
+  const today = todayISO()
+  const todayBookings = state.bookings.filter((b) => b.date === today)
 
   const byDept = React.useMemo(
     () =>
@@ -68,7 +69,7 @@ export default function DashboardPage() {
     <>
       <PageHeader
         title={`${greeting()}, ${user?.name ?? ""} 👋`}
-        description={`วันนี้ ${formatDate("2026-10-28", "EEEEที่ d MMMM yyyy")} — มีคำขอรออนุมัติ ${pending.length} รายการ`}
+        description={`วันนี้ ${formatDate(today, "EEEEที่ d MMMM yyyy")} — มีคำขอรออนุมัติ ${pending.length} รายการ`}
         actions={
           <>
             <Button variant="outline" onClick={() => navigate("/leave?new=1")}>

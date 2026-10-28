@@ -32,7 +32,7 @@ import {
   turnoverTrend,
 } from "@/data/attendance"
 import { departments } from "@/data/mock"
-import { formatDate, initials } from "@/lib/format"
+import { downloadCsv, formatDate, initials, todayISO } from "@/lib/format"
 import { useStore } from "@/lib/store"
 
 const attTag: Record<AttendanceStatus, TagType> = {
@@ -69,6 +69,7 @@ export default function HrDashboard() {
   const { state } = useStore()
   const [filter, setFilter] = React.useState<Filter>("all")
   const [q, setQ] = React.useState("")
+  const today = todayISO()
 
   const empMap = React.useMemo(() => new Map(state.employees.map((e) => [e.id, e])), [state.employees])
   const records = React.useMemo(() => buildAttendance(state.employees), [state.employees])
@@ -113,16 +114,13 @@ export default function HrDashboard() {
     .sort((a, b) => (b.checkOut ?? "").localeCompare(a.checkOut ?? "") || (a.checkIn ?? "99").localeCompare(b.checkIn ?? "99"))
 
   const exportCsv = () => {
-    const lines = records.map((r) => {
-      const e = empMap.get(r.employeeId)
-      return [e?.code, `${e?.firstName} ${e?.lastName}`, e?.department, r.checkIn ?? "", r.checkOut ?? "", attendanceStatusLabel[r.status]].map((v) => `"${v}"`).join(",")
-    })
-    const blob = new Blob(["﻿" + ["รหัส,ชื่อ,ฝ่าย,เวลาเข้า,เวลาออก,สถานะ", ...lines].join("\n")], { type: "text/csv;charset=utf-8" })
-    const a = document.createElement("a")
-    a.href = URL.createObjectURL(blob)
-    a.download = "attendance-2026-10-28.csv"
-    a.click()
-    URL.revokeObjectURL(a.href)
+    downloadCsv(`attendance-${today}.csv`, [
+      ["รหัส", "ชื่อ", "ฝ่าย", "เวลาเข้า", "เวลาออก", "สถานะ"],
+      ...records.map((r) => {
+        const e = empMap.get(r.employeeId)
+        return [e?.code ?? "", `${e?.firstName} ${e?.lastName}`, e?.department ?? "", r.checkIn ?? "", r.checkOut ?? "", attendanceStatusLabel[r.status]]
+      }),
+    ])
     toast.success(`ส่งออกข้อมูลเข้า-ออกงาน ${records.length} รายการแล้ว`)
   }
 
@@ -130,7 +128,7 @@ export default function HrDashboard() {
     <>
       <PageHeader
         title="แดชบอร์ดฝ่ายบุคคล"
-        description={`การเข้า-ออกงานวันนี้ (${formatDate("2026-10-28", "EEEEที่ d MMM yyyy")} · อัปเดต 17:45 น.) และการลาออกของพนักงาน`}
+        description={`การเข้า-ออกงานวันนี้ (${formatDate(today, "EEEEที่ d MMM yyyy")} · อัปเดต 17:45 น.) และการลาออกของพนักงาน`}
         actions={
           <Button variant="outline" className="bg-background" onClick={exportCsv}>
             <DownloadIcon /> ส่งออกเวลาเข้า-ออก
@@ -368,7 +366,7 @@ export default function HrDashboard() {
           <CardContent>
             <ul className="divide-y">
               {recentResignations.map((r) => {
-                const upcoming = r.lastDay >= "2026-10-28"
+                const upcoming = r.lastDay >= today
                 return (
                   <li key={r.name} className="flex flex-wrap items-center gap-3 py-3 first:pt-0 last:pb-0">
                     <Avatar className="size-9">
