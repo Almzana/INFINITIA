@@ -7,6 +7,9 @@ import LoginPage from "@/pages/login"
 const DashboardPage = lazy(() => import("@/pages/dashboards"))
 const EmployeesPage = lazy(() => import("@/pages/employees"))
 const LeavePage = lazy(() => import("@/pages/leave"))
+const ProjectsPage = lazy(() => import("@/pages/projects"))
+const ProjectDetailPage = lazy(() => import("@/pages/projects/detail"))
+const TimesheetPage = lazy(() => import("@/pages/timesheet"))
 const RoomsPage = lazy(() => import("@/pages/rooms"))
 const AnnouncementsPage = lazy(() => import("@/pages/announcements"))
 const SettingsPage = lazy(() => import("@/pages/settings"))
@@ -36,6 +39,9 @@ export default function App() {
         <Route index element={page(<DashboardPage />)} />
         <Route path="employees" element={page(<EmployeesPage />)} />
         <Route path="leave" element={page(<LeavePage />)} />
+        <Route path="projects" element={page(<ProjectsPage />)} />
+        <Route path="projects/:id" element={page(<ProjectDetailPage />)} />
+        <Route path="timesheet" element={page(<TimesheetPage />)} />
         <Route path="rooms" element={page(<RoomsPage />)} />
         <Route path="announcements" element={page(<AnnouncementsPage />)} />
         <Route path="settings" element={page(<SettingsPage />)} />

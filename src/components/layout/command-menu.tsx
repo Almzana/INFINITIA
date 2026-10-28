@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useNavigate } from "react-router-dom"
 import { useTheme } from "@/lib/theme"
-import { CalendarPlusIcon, MoonIcon, SunIcon, UserIcon, UserPlusIcon } from "lucide-react"
+import { BriefcaseIcon, CalendarPlusIcon, FolderPlusIcon, MoonIcon, SunIcon, UserIcon, UserPlusIcon } from "lucide-react"
 import {
   Command,
   CommandDialog,
@@ -56,6 +56,9 @@ export function CommandMenu({ open, onOpenChange }: { open: boolean; onOpenChang
           <CommandItem onSelect={() => run(() => navigate("/employees?new=1"))}>
             <UserPlusIcon /> เพิ่มพนักงานใหม่
           </CommandItem>
+          <CommandItem onSelect={() => run(() => navigate("/projects?new=1"))}>
+            <FolderPlusIcon /> สร้างโครงการใหม่
+          </CommandItem>
           <CommandItem onSelect={() => run(() => navigate("/leave?new=1"))}>
             <CalendarPlusIcon /> ยื่นใบลา
           </CommandItem>
@@ -65,6 +68,16 @@ export function CommandMenu({ open, onOpenChange }: { open: boolean; onOpenChang
           <CommandItem onSelect={() => run(() => setTheme("dark"))}>
             <MoonIcon /> โหมดมืด
           </CommandItem>
+        </CommandGroup>
+        <CommandSeparator />
+        <CommandGroup heading="โครงการ">
+          {state.projects.map((p) => (
+            <CommandItem key={p.id} value={`${p.name} ${p.id} ${p.manager}`} onSelect={() => run(() => navigate(`/projects/${p.id}`))}>
+              <BriefcaseIcon />
+              {p.name}
+              <CommandShortcut>{p.id}</CommandShortcut>
+            </CommandItem>
+          ))}
         </CommandGroup>
         <CommandSeparator />
         <CommandGroup heading="พนักงาน">

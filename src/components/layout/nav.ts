@@ -1,10 +1,12 @@
 import type { LucideIcon } from "lucide-react"
 import {
+  BriefcaseIcon,
   CalendarCheckIcon,
   DoorOpenIcon,
   LayoutDashboardIcon,
   MegaphoneIcon,
   SettingsIcon,
+  TimerIcon,
   UsersIcon,
 } from "lucide-react"
 
@@ -19,6 +21,13 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: "ภาพรวม",
     items: [{ title: "แดชบอร์ด", url: "/", icon: LayoutDashboardIcon, keywords: "dashboard home" }],
+  },
+  {
+    label: "งานโครงการ",
+    items: [
+      { title: "โครงการ", url: "/projects", icon: BriefcaseIcon, keywords: "project phase installment change order" },
+      { title: "บันทึกชั่วโมงงาน", url: "/timesheet", icon: TimerIcon, keywords: "timesheet hours" },
+    ],
   },
   {
     label: "งานบุคคล",

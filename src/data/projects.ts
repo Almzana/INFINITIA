@@ -1,27 +1,71 @@
 // Project names come from the public portfolio at infini-ia.com/portfolio.
 // All financial figures, dates and progress are PLACEHOLDERS for the demo —
 // replace them with data from the accounting / ERP system.
+import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns"
+import { todayISO } from "@/lib/format"
 
 export type ProjectType = "design-build" | "architecture" | "interior" | "construction"
 export type ProjectStatus = "completed" | "in-progress" | "design" | "handover"
+export type PhaseKey = "concept" | "schematic" | "design-dev" | "construction-docs" | "permit" | "construction" | "handover"
+
+export interface Phase {
+  key: PhaseKey
+  start: string
+  end: string
+  progress: number
+}
+
+export type InstallmentStatus = "pending" | "invoiced" | "paid"
+
+/** A payment installment (งวดเงิน), triggered when a phase reaches `atProgress`. */
+export interface Installment {
+  id: string
+  title: string
+  amount: number
+  /** Phase that triggers billing; null for the warranty retention released after handover */
+  phase: PhaseKey | null
+  atProgress: number
+  dueDate: string
+  status: InstallmentStatus
+  paidDate?: string
+  changeOrderId?: string
+}
+
+export type ChangeOrderStatus = "pending" | "approved" | "rejected"
+
+export interface ChangeOrder {
+  id: string
+  title: string
+  description: string
+  /** Change to the contract price (THB); negative for reduced scope */
+  amount: number
+  /** Change to the project cost (THB) */
+  costImpact: number
+  daysImpact: number
+  status: ChangeOrderStatus
+  requestedBy: "ลูกค้า" | "บริษัท"
+  date: string
+  decidedDate?: string
+}
 
 export interface Project {
   id: string
   name: string
   type: ProjectType
-  status: ProjectStatus
   location: string
   areaSqm: number
-  /** Contract value (THB) */
+  /** Original contract value (THB), excluding change orders */
   value: number
-  /** Cost incurred / estimated at completion (THB) */
+  /** Budgeted material & subcontract cost (THB), excluding design labour and change orders */
   cost: number
-  /** Cash collected from the client so far (THB) */
-  collected: number
-  progress: number
   start: string
   end: string
   manager: string
+  /** Design hours logged before the timesheet module existed */
+  priorHours: number
+  phases: Phase[]
+  installments: Installment[]
+  changeOrders: ChangeOrder[]
 }
 
 export const projectTypeLabel: Record<ProjectType, string> = {
@@ -38,70 +82,331 @@ export const projectStatusLabel: Record<ProjectStatus, string> = {
   design: "อยู่ระหว่างออกแบบ",
 }
 
+/** weight = share of overall progress and of the project timeline */
+export const phaseInfo: Record<PhaseKey, { label: string; weight: number }> = {
+  concept: { label: "แนวคิดออกแบบ", weight: 5 },
+  schematic: { label: "แบบร่างเบื้องต้น", weight: 8 },
+  "design-dev": { label: "พัฒนาแบบ", weight: 10 },
+  "construction-docs": { label: "แบบก่อสร้าง", weight: 10 },
+  permit: { label: "ขออนุญาต", weight: 5 },
+  construction: { label: "ก่อสร้าง / ติดตั้ง", weight: 55 },
+  handover: { label: "ตรวจรับและส่งมอบ", weight: 7 },
+}
+
+export const phasesByType: Record<ProjectType, PhaseKey[]> = {
+  "design-build": ["concept", "schematic", "design-dev", "construction-docs", "permit", "construction", "handover"],
+  architecture: ["concept", "schematic", "design-dev", "construction-docs", "permit"],
+  interior: ["concept", "schematic", "design-dev", "construction-docs", "construction", "handover"],
+  construction: ["permit", "construction", "handover"],
+}
+
+export const installmentStatusLabel: Record<InstallmentStatus, string> = {
+  pending: "ยังไม่ถึงงวด",
+  invoiced: "วางบิลแล้ว",
+  paid: "ชำระแล้ว",
+}
+
+export const changeOrderStatusLabel: Record<ChangeOrderStatus, string> = {
+  pending: "รอลูกค้าอนุมัติ",
+  approved: "อนุมัติแล้ว",
+  rejected: "ไม่อนุมัติ",
+}
+
+/** Average loaded cost of one design/engineering hour (THB) used to cost the timesheet */
+export const LABOR_RATE = 750
+/** Warranty period before the retention installment is released */
+const WARRANTY_DAYS = 365
+
+const iso = (d: Date) => format(d, "yyyy-MM-dd")
+
+// [title, % of contract, trigger phase (null = retention), trigger at phase progress %]
+type Template = [string, number, PhaseKey | null, number]
+export const paymentSchedules: Record<ProjectType, Template[]> = {
+  "design-build": [
+    ["มัดจำเซ็นสัญญา", 10, "concept", 0],
+    ["อนุมัติแบบร่าง", 10, "schematic", 100],
+    ["แบบก่อสร้างเสร็จสมบูรณ์", 10, "construction-docs", 100],
+    ["งานโครงสร้างแล้วเสร็จ", 15, "construction", 30],
+    ["งานสถาปัตยกรรมและระบบ", 15, "construction", 60],
+    ["งานก่อสร้างแล้วเสร็จ", 20, "construction", 100],
+    ["ส่งมอบงาน", 15, "handover", 100],
+    ["คืนเงินประกันผลงาน", 5, null, 100],
+  ],
+  architecture: [
+    ["มัดจำเซ็นสัญญา", 20, "concept", 0],
+    ["อนุมัติแบบร่าง", 25, "schematic", 100],
+    ["พัฒนาแบบแล้วเสร็จ", 25, "design-dev", 100],
+    ["ส่งมอบแบบก่อสร้าง", 20, "construction-docs", 100],
+    ["ได้รับใบอนุญาตก่อสร้าง", 10, "permit", 100],
+  ],
+  interior: [
+    ["มัดจำเซ็นสัญญา", 15, "concept", 0],
+    ["อนุมัติแบบตกแต่ง", 20, "design-dev", 100],
+    ["สั่งผลิตเฟอร์นิเจอร์", 15, "construction-docs", 100],
+    ["ติดตั้งงานตกแต่ง 50%", 25, "construction", 50],
+    ["ส่งมอบงาน", 20, "handover", 100],
+    ["คืนเงินประกันผลงาน", 5, null, 100],
+  ],
+  construction: [
+    ["มัดจำเซ็นสัญญา", 10, "permit", 0],
+    ["งานก่อสร้าง 25%", 20, "construction", 25],
+    ["งานก่อสร้าง 50%", 20, "construction", 50],
+    ["งานก่อสร้าง 75%", 20, "construction", 75],
+    ["งานก่อสร้างแล้วเสร็จ", 15, "construction", 100],
+    ["ส่งมอบงาน", 10, "handover", 100],
+    ["คืนเงินประกันผลงาน", 5, null, 100],
+  ],
+}
+
+/** Lay phases across the project timeline (by weight) and fill progress up to `progress`%. */
+export function buildPhases(type: ProjectType, start: string, end: string, progress: number): Phase[] {
+  const keys = phasesByType[type]
+  const total = keys.reduce((s, k) => s + phaseInfo[k].weight, 0)
+  const days = Math.max(1, differenceInCalendarDays(parseISO(end), parseISO(start)))
+  const reached = (progress / 100) * total
+  let cum = 0
+  return keys.map((key) => {
+    const w = phaseInfo[key].weight
+    const phase: Phase = {
+      key,
+      start: iso(addDays(parseISO(start), Math.round((cum / total) * days))),
+      end: iso(addDays(parseISO(start), Math.round(((cum + w) / total) * days))),
+      progress: Math.max(0, Math.min(100, Math.round(((reached - cum) / w) * 100))),
+    }
+    cum += w
+    return phase
+  })
+}
+
+function triggerDate(phases: Phase[], phase: PhaseKey | null, atProgress: number) {
+  if (phase === null) {
+    const last = phases[phases.length - 1]
+    return iso(addDays(parseISO(last.end), WARRANTY_DAYS))
+  }
+  const p = phases.find((x) => x.key === phase)!
+  const span = differenceInCalendarDays(parseISO(p.end), parseISO(p.start))
+  return iso(addDays(parseISO(p.start), Math.round((span * atProgress) / 100)))
+}
+
+/** Has the billing trigger for this installment been reached? */
+export function isTriggered(phases: Phase[], inst: Pick<Installment, "phase" | "atProgress" | "dueDate" | "changeOrderId">, today = todayISO()) {
+  if (inst.changeOrderId) return true
+  if (inst.phase === null) return phases.every((p) => p.progress === 100) && inst.dueDate <= today
+  const p = phases.find((x) => x.key === inst.phase)
+  return !!p && (inst.atProgress === 0 ? true : p.progress >= inst.atProgress)
+}
+
+export function buildInstallments(projectId: string, type: ProjectType, value: number, phases: Phase[]): Installment[] {
+  return paymentSchedules[type].map(([title, pct, phase, atProgress], i) => ({
+    id: `${projectId}-I${i + 1}`,
+    title,
+    amount: Math.round((value * pct) / 100),
+    phase,
+    atProgress,
+    dueDate: triggerDate(phases, phase, atProgress),
+    status: "pending",
+  }))
+}
+
+export function weightedProgress(phases: Phase[]) {
+  const total = phases.reduce((s, p) => s + phaseInfo[p.key].weight, 0)
+  return total ? Math.round(phases.reduce((s, p) => s + phaseInfo[p.key].weight * p.progress, 0) / total) : 0
+}
+
+export function currentPhase(p: Project): Phase | undefined {
+  return p.phases.find((ph) => ph.progress < 100)
+}
+
+export function projectStatus(p: Project): ProjectStatus {
+  const cur = currentPhase(p)
+  if (!cur) return "completed"
+  if (cur.key === "handover") return "handover"
+  if (cur.key === "construction") return "in-progress"
+  return "design"
+}
+
+export interface ProjectFinance {
+  progress: number
+  /** Contract value including approved change orders */
+  contract: number
+  changeOrderValue: number
+  /** Material/subcontract cost including approved change orders */
+  directCost: number
+  hours: number
+  laborCost: number
+  totalCost: number
+  profit: number
+  margin: number
+  collected: number
+  invoiced: number
+  overdue: number
+  outstanding: number
+  pendingChangeOrders: number
+}
+
+export function financeOf(p: Project, loggedHours = 0, today = todayISO()): ProjectFinance {
+  const approved = p.changeOrders.filter((c) => c.status === "approved")
+  const changeOrderValue = approved.reduce((s, c) => s + c.amount, 0)
+  const contract = p.value + changeOrderValue
+  const directCost = p.cost + approved.reduce((s, c) => s + c.costImpact, 0)
+  const hours = p.priorHours + loggedHours
+  const laborCost = hours * LABOR_RATE
+  const totalCost = directCost + laborCost
+  const collected = p.installments.filter((i) => i.status === "paid").reduce((s, i) => s + i.amount, 0)
+  const invoicedList = p.installments.filter((i) => i.status === "invoiced")
+  return {
+    progress: weightedProgress(p.phases),
+    contract,
+    changeOrderValue,
+    directCost,
+    hours,
+    laborCost,
+    totalCost,
+    profit: contract - totalCost,
+    margin: contract ? (contract - totalCost) / contract : 0,
+    collected,
+    invoiced: invoicedList.reduce((s, i) => s + i.amount, 0),
+    overdue: invoicedList.filter((i) => i.dueDate < today).reduce((s, i) => s + i.amount, 0),
+    outstanding: contract - collected,
+    pendingChangeOrders: p.changeOrders.filter((c) => c.status === "pending").length,
+  }
+}
+
+/** Create a new project with its phase plan and payment schedule. */
+export function createProject(input: Pick<Project, "id" | "name" | "type" | "location" | "areaSqm" | "value" | "cost" | "start" | "end" | "manager">): Project {
+  const phases = buildPhases(input.type, input.start, input.end, 0)
+  return { ...input, priorHours: 0, phases, installments: buildInstallments(input.id, input.type, input.value, phases), changeOrders: [] }
+}
+
+// ---------------------------------------------------------------------------
+// Seed data
+// ---------------------------------------------------------------------------
+
 const M = 1_000_000
 
-// [name, type, status, location, area, value(M), cost(M), collected(M), progress, start, end, manager]
-const rows: [string, ProjectType, ProjectStatus, string, number, number, number, number, number, string, string, string][] = [
-  ["The Arcadia Residence", "design-build", "completed", "กรุงเทพฯ", 1450, 128, 92.2, 128, 100, "2023-03-01", "2025-02-28", "PM สมชาย"],
-  ["Château Blanc Residence", "design-build", "completed", "นนทบุรี", 1200, 96.5, 71.4, 96.5, 100, "2023-06-15", "2025-05-30", "PM วิชัย"],
-  ["The Sienna Manor", "design-build", "completed", "กรุงเทพฯ", 980, 74, 55.9, 74, 100, "2023-09-01", "2025-07-15", "PM สมชาย"],
-  ["The Crown Residence", "design-build", "completed", "ปทุมธานี", 1600, 152, 113.8, 152, 100, "2023-11-01", "2025-10-31", "PM ธนพล"],
-  ["The Colonnade Palace", "design-build", "completed", "กรุงเทพฯ", 2100, 186, 139.5, 186, 100, "2024-01-10", "2026-01-20", "PM วิชัย"],
-  ["The Lumière Manor", "interior", "completed", "กรุงเทพฯ", 760, 38.5, 26.2, 38.5, 100, "2024-04-01", "2025-06-30", "ID อรุณี"],
-  ["The Grandeur Mansion Residence", "design-build", "completed", "สมุทรปราการ", 1850, 164, 126.3, 164, 100, "2024-02-01", "2026-03-15", "PM ธนพล"],
-  ["Timeless Sanctuary", "architecture", "completed", "เชียงใหม่", 640, 9.8, 6.1, 9.8, 100, "2024-06-01", "2025-03-31", "AR ณัฐวุฒิ"],
-  ["The Portico Residence", "design-build", "completed", "กรุงเทพฯ", 1100, 88, 66.9, 88, 100, "2024-05-15", "2026-04-30", "PM สมชาย"],
-  ["Jewel of the Lake", "design-build", "handover", "นครราชสีมา", 1380, 118, 89.7, 106.2, 96, "2024-08-01", "2026-11-30", "PM วิชัย"],
-  ["The Crescent Residence", "interior", "completed", "กรุงเทพฯ", 820, 42, 29.8, 42, 100, "2025-01-10", "2026-02-28", "ID กมลชนก"],
-  ["Noir Grandeur", "design-build", "in-progress", "กรุงเทพฯ", 1520, 142, 108.6, 85.2, 68, "2025-02-01", "2027-03-31", "PM ธนพล"],
-  ["The Infinite Horizon", "design-build", "in-progress", "ชลบุรี", 1750, 158, 117.5, 79, 54, "2025-04-01", "2027-06-30", "PM สมชาย"],
-  ["Golden Nakara", "design-build", "in-progress", "กรุงเทพฯ", 1300, 112, 86.1, 61.6, 61, "2025-03-15", "2027-01-31", "PM วิชัย"],
-  ["The Obsidian Residence", "construction", "in-progress", "นนทบุรี", 1180, 84, 70.2, 37.8, 47, "2025-06-01", "2027-02-28", "PM ธนพล"],
-  ["The Monarch Residence", "design-build", "in-progress", "กรุงเทพฯ", 1900, 176, 131.4, 70.4, 42, "2025-07-01", "2027-09-30", "PM สมชาย"],
-  ["Vertigo Monarch", "architecture", "completed", "ภูเก็ต", 1250, 14.5, 9.4, 14.5, 100, "2025-01-15", "2025-12-15", "AR ณัฐวุฒิ"],
-  ["Princess Château Residence", "design-build", "in-progress", "กรุงเทพฯ", 1650, 148, 112.9, 44.4, 33, "2025-09-01", "2027-11-30", "PM วิชัย"],
-  ["Home-X One", "interior", "in-progress", "กรุงเทพฯ", 540, 24, 17.3, 12, 58, "2026-01-15", "2026-12-20", "ID อรุณี"],
-  ["The Nature Embrace Residence", "design-build", "design", "เชียงใหม่", 1420, 126, 94.5, 12.6, 12, "2026-05-01", "2028-03-31", "AR ณัฐวุฒิ"],
-  ["The Arches Manor Residence", "design-build", "design", "กรุงเทพฯ", 1580, 138, 103.5, 13.8, 8, "2026-07-01", "2028-05-31", "AR ปวีณา"],
-  ["105 Residence", "interior", "design", "กรุงเทพฯ", 480, 19.5, 13.9, 3.9, 15, "2026-08-15", "2027-04-30", "ID กมลชนก"],
+// [name, type, location, area, value(M), cost(M), start, end, manager]
+const rows: [string, ProjectType, string, number, number, number, string, string, string][] = [
+  ["The Arcadia Residence", "design-build", "กรุงเทพฯ", 1450, 128, 90.4, "2023-03-01", "2025-02-28", "PM สมชาย"],
+  ["Château Blanc Residence", "design-build", "นนทบุรี", 1200, 96.5, 70.1, "2023-06-15", "2025-05-30", "PM วิชัย"],
+  ["The Sienna Manor", "design-build", "กรุงเทพฯ", 980, 74, 54.8, "2023-09-01", "2025-07-15", "PM สมชาย"],
+  ["The Crown Residence", "design-build", "ปทุมธานี", 1600, 152, 112, "2023-11-01", "2025-10-31", "PM ธนพล"],
+  ["The Colonnade Palace", "design-build", "กรุงเทพฯ", 2100, 186, 137.2, "2024-01-10", "2026-01-20", "PM วิชัย"],
+  ["The Lumière Manor", "interior", "กรุงเทพฯ", 760, 38.5, 25.8, "2024-04-01", "2025-06-30", "ID อรุณี"],
+  ["The Grandeur Mansion Residence", "design-build", "สมุทรปราการ", 1850, 164, 124.5, "2024-02-01", "2026-03-15", "PM ธนพล"],
+  ["Timeless Sanctuary", "architecture", "เชียงใหม่", 640, 9.8, 4.6, "2024-06-01", "2025-03-31", "AR ณัฐวุฒิ"],
+  ["The Portico Residence", "design-build", "กรุงเทพฯ", 1100, 88, 65.8, "2024-05-15", "2026-04-30", "PM สมชาย"],
+  ["Jewel of the Lake", "design-build", "นครราชสีมา", 1380, 118, 88.2, "2024-08-01", "2026-11-30", "PM วิชัย"],
+  ["The Crescent Residence", "interior", "กรุงเทพฯ", 820, 42, 29.2, "2025-01-10", "2026-02-28", "ID กมลชนก"],
+  ["Noir Grandeur", "design-build", "กรุงเทพฯ", 1520, 142, 106.9, "2025-02-01", "2027-03-31", "PM ธนพล"],
+  ["The Infinite Horizon", "design-build", "ชลบุรี", 1750, 158, 115.6, "2025-04-01", "2027-06-30", "PM สมชาย"],
+  ["Golden Nakara", "design-build", "กรุงเทพฯ", 1300, 112, 84.7, "2025-03-15", "2027-01-31", "PM วิชัย"],
+  ["The Obsidian Residence", "construction", "นนทบุรี", 1180, 84, 70.2, "2025-06-01", "2027-02-28", "PM ธนพล"],
+  ["The Monarch Residence", "design-build", "กรุงเทพฯ", 1900, 176, 129.3, "2025-07-01", "2027-09-30", "PM สมชาย"],
+  ["Vertigo Monarch", "architecture", "ภูเก็ต", 1250, 14.5, 7.4, "2025-01-15", "2025-12-15", "AR ณัฐวุฒิ"],
+  ["Princess Château Residence", "design-build", "กรุงเทพฯ", 1650, 148, 111.3, "2025-09-01", "2027-11-30", "PM วิชัย"],
+  ["Home-X One", "interior", "กรุงเทพฯ", 540, 24, 16.9, "2026-01-15", "2026-12-20", "ID อรุณี"],
+  ["The Nature Embrace Residence", "design-build", "เชียงใหม่", 1420, 126, 92.6, "2026-05-01", "2028-03-31", "AR ณัฐวุฒิ"],
+  ["The Arches Manor Residence", "design-build", "กรุงเทพฯ", 1580, 138, 101.6, "2026-07-01", "2028-05-31", "AR ปวีณา"],
+  ["105 Residence", "interior", "กรุงเทพฯ", 480, 19.5, 13.5, "2026-08-15", "2027-04-30", "ID กมลชนก"],
 ]
 
-export const projects: Project[] = rows.map(([name, type, status, location, areaSqm, v, c, col, progress, start, end, manager], i) => ({
-  id: `PJ${String(i + 1).padStart(3, "0")}`,
-  name,
-  type,
-  status,
-  location,
-  areaSqm,
-  value: v * M,
-  cost: c * M,
-  collected: col * M,
-  progress,
-  start,
-  end,
-  manager,
-}))
+// Change orders keyed by project name: [title, description, amount(M), cost(M), days, status, requestedBy, date]
+const seedChangeOrders: Record<string, [string, string, number, number, number, ChangeOrderStatus, ChangeOrder["requestedBy"], string][]> = {
+  "Noir Grandeur": [
+    ["เพิ่มห้องโฮมเธียเตอร์ชั้นใต้ดิน", "ขุดเพิ่มชั้นใต้ดินบางส่วน พร้อมระบบเสียงและอะคูสติก", 6.8, 4.9, 45, "approved", "ลูกค้า", "2026-04-18"],
+    ["เปลี่ยนหินอ่อนโถงทางเข้าเป็น Calacatta Oro", "อัปเกรดวัสดุพื้นและผนังโถงหลัก 180 ตร.ม.", 2.4, 1.7, 14, "pending", "ลูกค้า", "2026-10-12"],
+  ],
+  "The Infinite Horizon": [
+    ["ขยายสระว่ายน้ำ Infinity Edge", "เพิ่มความยาวสระจาก 18 ม. เป็น 25 ม. และระบบน้ำเกลือ", 3.9, 2.8, 30, "approved", "ลูกค้า", "2026-02-10"],
+    ["ระบบ Smart Home ทั้งหลัง", "ติดตั้งระบบควบคุมไฟ ม่าน แอร์ และกล้องผ่านแอป", 2.2, 1.5, 10, "pending", "ลูกค้า", "2026-10-20"],
+  ],
+  "Golden Nakara": [
+    ["ลดงานสวนแนวตั้งด้านทิศใต้", "ลูกค้าขอเปลี่ยนเป็นระแนงไม้แทนสวนแนวตั้ง", -0.8, -0.6, -7, "approved", "ลูกค้า", "2026-06-05"],
+    ["เสริมฐานรากใต้ห้องสมุด", "ผลเจาะสำรวจดินพบชั้นดินอ่อนกว่าที่ประเมิน", 0, 0.9, 12, "approved", "บริษัท", "2025-10-02"],
+  ],
+  "The Monarch Residence": [
+    ["เพิ่มลิฟต์แก้วโถงกลาง", "ลิฟต์โดยสารแบบพาโนรามา 3 ชั้น", 4.5, 3.4, 21, "pending", "ลูกค้า", "2026-10-25"],
+  ],
+  "Jewel of the Lake": [
+    ["ท่าเทียบเรือส่วนตัว", "ท่าเรือไม้เต็งพร้อมศาลาริมน้ำ", 2.9, 2.1, 25, "approved", "ลูกค้า", "2025-12-15"],
+    ["เปลี่ยนสีกระเบื้องหลังคา", "ลูกค้าขอเปลี่ยนสีหลังติดตั้งตัวอย่างหน้างาน", 0.6, 0.45, 5, "rejected", "ลูกค้า", "2026-07-08"],
+  ],
+  "Home-X One": [["ตู้ไวน์ติดผนังควบคุมอุณหภูมิ", "ตู้ไวน์ 240 ขวดพร้อมไฟ LED", 0.85, 0.6, 7, "approved", "ลูกค้า", "2026-06-20"]],
+  "The Colonnade Palace": [["เพิ่มเสาโรมันและบัวปูนปั้นด้านหน้า", "ปรับด้านหน้าอาคารตามแบบที่ลูกค้าอนุมัติ", 3.2, 2.2, 20, "approved", "ลูกค้า", "2024-11-02"]],
+}
 
-export const profitOf = (p: Project) => p.value - p.cost
-export const marginOf = (p: Project) => (p.value ? (p.value - p.cost) / p.value : 0)
+function seedProject(row: (typeof rows)[number], index: number): Project {
+  const [name, type, location, areaSqm, v, c, start, end, manager] = row
+  const id = `PJ${String(index + 1).padStart(3, "0")}`
+  const today = todayISO()
+  // Seed progress follows the timeline (share of time elapsed), with some projects running a little behind
+  const elapsed = differenceInCalendarDays(parseISO(today), parseISO(start)) / Math.max(1, differenceInCalendarDays(parseISO(end), parseISO(start)))
+  const progress = elapsed >= 1 ? 100 : Math.max(0, Math.min(99, Math.round(elapsed * 100 - (index % 3) * 4)))
+  const phases = buildPhases(type, start, end, progress)
+  const changeOrders: ChangeOrder[] = (seedChangeOrders[name] ?? []).map(([title, description, amt, cost, daysImpact, status, requestedBy, date], i) => ({
+    id: `${id}-CO${i + 1}`,
+    title,
+    description,
+    amount: amt * M,
+    costImpact: cost * M,
+    daysImpact,
+    status,
+    requestedBy,
+    date,
+    decidedDate: status === "pending" ? undefined : iso(addDays(parseISO(date), 6)),
+  }))
 
-/** Recognised revenue / cost per month for 2569 (2026), in THB. Placeholder figures. */
-export const monthlyFinance = [
-  { month: "ม.ค.", revenue: 58.2, cost: 43.6, target: 60 },
-  { month: "ก.พ.", revenue: 61.5, cost: 45.1, target: 60 },
-  { month: "มี.ค.", revenue: 72.8, cost: 52.9, target: 65 },
-  { month: "เม.ย.", revenue: 54.3, cost: 41.7, target: 65 },
-  { month: "พ.ค.", revenue: 68.9, cost: 50.2, target: 70 },
-  { month: "มิ.ย.", revenue: 75.4, cost: 54.8, target: 70 },
-  { month: "ก.ค.", revenue: 81.2, cost: 59.3, target: 75 },
-  { month: "ส.ค.", revenue: 77.6, cost: 57.8, target: 75 },
-  { month: "ก.ย.", revenue: 84.1, cost: 61.2, target: 80 },
-  { month: "ต.ค.", revenue: 79.3, cost: 58.4, target: 80 },
-].map((m) => ({ ...m, revenue: m.revenue * M, cost: m.cost * M, target: m.target * M, profit: (m.revenue - m.cost) * M }))
+  const installments = buildInstallments(id, type, v * M, phases).map((inst) => {
+    if (!isTriggered(phases, inst, today)) return inst
+    const paidDate = iso(addDays(parseISO(inst.dueDate), 10))
+    return { ...inst, status: "paid" as const, paidDate: paidDate < today ? paidDate : today }
+  })
+  // Approved change orders with a price are billed as their own installment
+  for (const co of changeOrders.filter((x) => x.status === "approved" && x.amount !== 0)) {
+    const due = iso(addDays(parseISO(co.decidedDate!), 30))
+    installments.push({
+      id: `${id}-I-${co.id}`,
+      title: co.amount > 0 ? `งานเพิ่ม: ${co.title}` : `ลดงาน: ${co.title}`,
+      amount: co.amount,
+      phase: null,
+      atProgress: 0,
+      dueDate: due,
+      status: due < today ? "paid" : "invoiced",
+      paidDate: due < today ? due : undefined,
+      changeOrderId: co.id,
+    })
+  }
+  // Leave the latest paid installment of some projects unpaid so overdue billing shows up
+  if (index % 3 === 1) {
+    const lastPaid = [...installments].reverse().find((i) => i.status === "paid" && !i.changeOrderId && i.phase !== null)
+    if (lastPaid && progress < 100) Object.assign(lastPaid, { status: "invoiced", paidDate: undefined })
+  }
 
-export const ANNUAL_TARGET = 850 * M
+  return {
+    id,
+    name,
+    type,
+    location,
+    areaSqm,
+    value: v * M,
+    cost: c * M,
+    start,
+    end,
+    manager,
+    // Rough historical design effort: ~1.6 h per sqm for full design, scaled by progress
+    priorHours: Math.round(areaSqm * (type === "construction" ? 0.4 : 1.6) * (progress / 100)),
+    phases,
+    installments,
+    changeOrders,
+  }
+}
 
-/** Sales pipeline (leads not yet signed). Placeholder figures. */
+export const seedProjects: Project[] = rows.map(seedProject)
+
+/** Annual billing target for 2569 (2026), cash basis. Placeholder. */
+export const ANNUAL_TARGET = 620 * M
+
+/** Sales pipeline (leads not yet signed). Placeholder until a CRM module exists. */
 export const pipeline = [
   { stage: "ติดต่อเข้ามา", count: 46, value: 0 },
   { stage: "นัดปรึกษา", count: 28, value: 0 },
