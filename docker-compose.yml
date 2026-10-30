@@ -1,0 +1,78 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hrportal}
+      # No default: refuse to start without a real password in .env
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-hrportal}
+      TZ: Asia/Bangkok
+    # Reachable only from this machine (for local tools / npm run dev). Remove entirely on a server.
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build: ./server
+    image: hr-portal-api
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-hrportal}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-hrportal}
+      PORT: 3001
+      TZ: Asia/Bangkok
+      # Demo data + demo accounts on start. Set RUN_SEED=false in production.
+      RUN_SEED: ${RUN_SEED:-true}
+      SEED_DEMO_PASSWORD: ${SEED_DEMO_PASSWORD:-}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-168}
+      SESSION_IDLE_HOURS: ${SESSION_IDLE_HOURS:-12}
+      # Set to true once the site is served over HTTPS
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # Links in emails (password reset) point here
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      # Development: Mailpit catches all mail (read it at http://localhost:8025). Production: your SMTP server.
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      # Swagger UI at /api/docs (http://localhost:8080/api/docs)
+      API_DOCS: ${API_DOCS:-true}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-INFINI I.A. Portal <no-reply@infini-ia.com>}
+    depends_on:
+      db:
+        condition: service_healthy
+    # Healthy once migrations (and the dev seed) are done and the API answers
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    restart: unless-stopped
+
+  # Development mail catcher: nothing leaves this machine. Not part of docker-compose.prod.yml.
+  mailpit:
+    image: axllent/mailpit:v1.21
+    ports:
+      - "127.0.0.1:8025:8025"
+      - "127.0.0.1:1025:1025"
+    restart: unless-stopped
+
+  web:
+    build: .
+    image: hr-portal
+    ports:
+      - "8080:80"
+    # nginx starts after the API is ready, so the first visitors do not get 502 during migrations
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

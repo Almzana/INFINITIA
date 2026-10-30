@@ -1,0 +1,52 @@
+[
+ {
+  "id": "r1",
+  "name": "ห้องเจ้าพระยา",
+  "capacity": 20,
+  "floor": 5,
+  "facilities": [
+   "โปรเจกเตอร์",
+   "VDO Conference",
+   "ไวท์บอร์ด"
+  ]
+ },
+ {
+  "id": "r2",
+  "name": "ห้องปิง",
+  "capacity": 8,
+  "floor": 3,
+  "facilities": [
+   "ทีวี",
+   "ไวท์บอร์ด"
+  ]
+ },
+ {
+  "id": "r3",
+  "name": "ห้องวัง",
+  "capacity": 6,
+  "floor": 3,
+  "facilities": [
+   "ทีวี"
+  ]
+ },
+ {
+  "id": "r4",
+  "name": "ห้องยม",
+  "capacity": 12,
+  "floor": 4,
+  "facilities": [
+   "โปรเจกเตอร์",
+   "ไวท์บอร์ด"
+  ]
+ },
+ {
+  "id": "r5",
+  "name": "ห้องน่าน",
+  "capacity": 4,
+  "floor": 4,
+  "facilities": [
+   "ทีวี",
+   "VDO Conference"
+  ]
+ }
+]

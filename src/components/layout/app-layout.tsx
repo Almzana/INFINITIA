@@ -1,7 +1,7 @@
 import * as React from "react"
 import { Link, Navigate, Outlet, useLocation } from "react-router-dom"
 import { useTheme } from "@/lib/theme"
-import { BellIcon, MoonIcon, SearchIcon, SunIcon } from "lucide-react"
+import { MoonIcon, SearchIcon, SunIcon } from "lucide-react"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -11,72 +11,40 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Kbd } from "@/components/shared/kbd"
-import { activities } from "@/data/mock"
+import { useDataSync } from "@/hooks/use-data-sync"
+import { canSeePage } from "@/lib/access"
 import { useAuth } from "@/lib/auth"
+import { t } from "@/i18n"
 import { AppSidebar } from "./app-sidebar"
 import { CommandMenu } from "./command-menu"
 import { findNav } from "./nav"
+import { NotificationsBell } from "./notifications-bell"
 
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme()
   const dark = resolvedTheme === "dark"
   return (
-    <Button variant="ghost" size="icon" onClick={() => setTheme(dark ? "light" : "dark")} aria-label="สลับธีม">
+    <Button variant="ghost" size="icon" onClick={() => setTheme(dark ? "light" : "dark")} aria-label={t("layout.toggleTheme")}>
       {dark ? <SunIcon /> : <MoonIcon />}
     </Button>
   )
 }
 
-function Notifications() {
-  const [unread, setUnread] = React.useState(3)
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative" aria-label="การแจ้งเตือน">
-          <BellIcon />
-          {unread > 0 && (
-            <span className="absolute top-1 right-1 flex size-4 items-center justify-center rounded-full bg-destructive text-[10px] font-semibold text-white">
-              {unread}
-            </span>
-          )}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-0">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <p className="font-medium">การแจ้งเตือน</p>
-          <Button variant="link" size="xs" className="h-auto p-0" onClick={() => setUnread(0)}>
-            อ่านทั้งหมด
-          </Button>
-        </div>
-        <ul className="max-h-80 divide-y overflow-auto">
-          {activities.map((a, i) => (
-            <li key={a.id} className="flex gap-3 px-4 py-3 text-sm">
-              <span className={`mt-1.5 size-2 shrink-0 rounded-full ${i < unread ? "bg-primary" : "bg-transparent"}`} />
-              <div>
-                <p>
-                  <span className="font-medium">{a.who}</span> {a.what}
-                </p>
-                <p className="text-xs text-muted-foreground">{a.when}</p>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
 export function AppLayout() {
   const { user } = useAuth()
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
   const [cmdOpen, setCmdOpen] = React.useState(false)
   const current = findNav(pathname)
+  useDataSync()
 
-  if (!user) return <Navigate to="/login" replace state={{ from: pathname }} />
+  if (!user) return <Navigate to="/login" replace state={{ from: pathname + search }} />
+  // Typed URLs too: a page this role may not open goes back to the dashboard
+  // A password set by HR must be replaced before anything else (the API enforces this too)
+  if (user.mustChangePassword) return <Navigate to="/change-password" replace />
+  if (current && !canSeePage(current.url, user.role)) return <Navigate to="/" replace />
 
   return (
     <SidebarProvider>
@@ -89,14 +57,14 @@ export function AppLayout() {
             <BreadcrumbList>
               <BreadcrumbItem>
                 <BreadcrumbLink asChild>
-                  <Link to="/">หน้าแรก</Link>
+                  <Link to="/">{t("layout.home")}</Link>
                 </BreadcrumbLink>
               </BreadcrumbItem>
               {current && current.url !== "/" && (
                 <>
                   <BreadcrumbSeparator />
                   <BreadcrumbItem>
-                    <BreadcrumbPage>{current.title}</BreadcrumbPage>
+                    <BreadcrumbPage>{t(current.titleKey)}</BreadcrumbPage>
                   </BreadcrumbItem>
                 </>
               )}
@@ -109,10 +77,10 @@ export function AppLayout() {
               onClick={() => setCmdOpen(true)}
             >
               <SearchIcon />
-              <span className="hidden flex-1 text-left font-normal sm:inline">ค้นหา...</span>
+              <span className="hidden flex-1 text-left font-normal sm:inline">{t("layout.searchPlaceholder")}</span>
               <Kbd className="hidden sm:inline-flex">Ctrl K</Kbd>
             </Button>
-            <Notifications />
+            <NotificationsBell />
             <ThemeToggle />
           </div>
         </header>

@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react"
 import { InboxIcon, TrendingDownIcon, TrendingUpIcon } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import { t } from "@/i18n"
 
 export function PageHeader({
   title,
@@ -23,7 +24,7 @@ export function PageHeader({
   )
 }
 
-export function EmptyState({ title = "ไม่พบข้อมูล", description }: { title?: string; description?: string }) {
+export function EmptyState({ title = t("common.noData"), description }: { title?: string; description?: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
       <div className="flex size-12 items-center justify-center rounded-full bg-muted">

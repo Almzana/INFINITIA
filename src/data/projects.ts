@@ -2,6 +2,7 @@
 // All financial figures, dates and progress are PLACEHOLDERS for the demo —
 // replace them with data from the accounting / ERP system.
 import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns"
+import { labelMap, t } from "@/i18n"
 import { todayISO } from "@/lib/format"
 
 export type ProjectType = "design-build" | "architecture" | "interior" | "construction"
@@ -66,31 +67,35 @@ export interface Project {
   phases: Phase[]
   installments: Installment[]
   changeOrders: ChangeOrder[]
+  /** Total hours in the timesheet (from the API, all people) */
+  loggedHours?: number
+  /** User who created it (null for imported projects); Leaders may only edit their own */
+  createdByUserId?: string | null
+  /** Employee ids of the members: only they log timesheet hours on it (from the API) */
+  memberIds?: string[]
 }
 
-export const projectTypeLabel: Record<ProjectType, string> = {
-  "design-build": "ออกแบบ + ก่อสร้าง",
-  architecture: "ออกแบบสถาปัตยกรรม",
-  interior: "ออกแบบตกแต่งภายใน",
-  construction: "ก่อสร้าง",
-}
+export const projectTypeLabel = labelMap<ProjectType>("projectLabels.type", ["design-build", "architecture", "interior", "construction"])
 
-export const projectStatusLabel: Record<ProjectStatus, string> = {
-  completed: "เสร็จสมบูรณ์",
-  handover: "รอส่งมอบ",
-  "in-progress": "กำลังก่อสร้าง",
-  design: "อยู่ระหว่างออกแบบ",
-}
+export const projectStatusLabel = labelMap<ProjectStatus>("projectLabels.status", ["completed", "handover", "in-progress", "design"])
+
+/** Phase entry whose label is translated on every read */
+const phaseEntry = (key: PhaseKey, weight: number) => ({
+  get label() {
+    return t(`projectLabels.phase.${key}`)
+  },
+  weight,
+})
 
 /** weight = share of overall progress and of the project timeline */
-export const phaseInfo: Record<PhaseKey, { label: string; weight: number }> = {
-  concept: { label: "แนวคิดออกแบบ", weight: 5 },
-  schematic: { label: "แบบร่างเบื้องต้น", weight: 8 },
-  "design-dev": { label: "พัฒนาแบบ", weight: 10 },
-  "construction-docs": { label: "แบบก่อสร้าง", weight: 10 },
-  permit: { label: "ขออนุญาต", weight: 5 },
-  construction: { label: "ก่อสร้าง / ติดตั้ง", weight: 55 },
-  handover: { label: "ตรวจรับและส่งมอบ", weight: 7 },
+export const phaseInfo: Record<PhaseKey, { readonly label: string; weight: number }> = {
+  concept: phaseEntry("concept", 5),
+  schematic: phaseEntry("schematic", 8),
+  "design-dev": phaseEntry("design-dev", 10),
+  "construction-docs": phaseEntry("construction-docs", 10),
+  permit: phaseEntry("permit", 5),
+  construction: phaseEntry("construction", 55),
+  handover: phaseEntry("handover", 7),
 }
 
 export const phasesByType: Record<ProjectType, PhaseKey[]> = {
@@ -100,17 +105,9 @@ export const phasesByType: Record<ProjectType, PhaseKey[]> = {
   construction: ["permit", "construction", "handover"],
 }
 
-export const installmentStatusLabel: Record<InstallmentStatus, string> = {
-  pending: "ยังไม่ถึงงวด",
-  invoiced: "วางบิลแล้ว",
-  paid: "ชำระแล้ว",
-}
+export const installmentStatusLabel = labelMap<InstallmentStatus>("projectLabels.installment", ["pending", "invoiced", "paid"])
 
-export const changeOrderStatusLabel: Record<ChangeOrderStatus, string> = {
-  pending: "รอลูกค้าอนุมัติ",
-  approved: "อนุมัติแล้ว",
-  rejected: "ไม่อนุมัติ",
-}
+export const changeOrderStatusLabel = labelMap<ChangeOrderStatus>("projectLabels.changeOrder", ["pending", "approved", "rejected"])
 
 /** Average loaded cost of one design/engineering hour (THB) used to cost the timesheet */
 export const LABOR_RATE = 750
@@ -407,10 +404,18 @@ export const seedProjects: Project[] = rows.map(seedProject)
 export const ANNUAL_TARGET = 620 * M
 
 /** Sales pipeline (leads not yet signed). Placeholder until a CRM module exists. */
+const pipelineStage = (key: string, count: number, value: number) => ({
+  get stage() {
+    return t(`projectLabels.pipeline.${key}`)
+  },
+  count,
+  value,
+})
+
 export const pipeline = [
-  { stage: "ติดต่อเข้ามา", count: 46, value: 0 },
-  { stage: "นัดปรึกษา", count: 28, value: 0 },
-  { stage: "เสนอแบบร่าง", count: 14, value: 1320 * M },
-  { stage: "เสนอราคา", count: 8, value: 905 * M },
-  { stage: "เซ็นสัญญา", count: 3, value: 342 * M },
+  pipelineStage("lead", 46, 0),
+  pipelineStage("consultation", 28, 0),
+  pipelineStage("concept", 14, 1320 * M),
+  pipelineStage("quotation", 8, 905 * M),
+  pipelineStage("signed", 3, 342 * M),
 ]

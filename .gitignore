@@ -25,3 +25,10 @@ dist-ssr
 
 # Local tool config
 .claude
+
+# Secrets
+.env
+server/.env
+
+# Database backups (production)
+backups/

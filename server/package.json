@@ -1,0 +1,34 @@
+{
+  "name": "hr-portal-api",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "node --watch --env-file-if-exists=.env src/index.ts",
+    "start": "node src/index.ts",
+    "migrate": "node-pg-migrate --migrations-dir migrations --migration-file-language sql",
+    "seed": "node --env-file-if-exists=.env scripts/seed.ts",
+    "developer": "node --env-file-if-exists=.env scripts/developer.ts",
+    "test": "node --test --test-concurrency=1 \"test/**/*.test.ts\"",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.5",
+    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/swagger": "^9.5.1",
+    "@fastify/swagger-ui": "^5.2.3",
+    "fastify": "^5.2.0",
+    "node-pg-migrate": "^7.9.0",
+    "nodemailer": "^6.10.1",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/nodemailer": "^6.4.24",
+    "@types/pg": "^8.11.0",
+    "typescript": "~7.0.2"
+  }
+}

@@ -1,0 +1,16 @@
+node_modules
+server
+.env
+dist
+.git
+.claude
+.vscode
+.idea
+*.log
+*.local
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Database dumps (personal data) must never enter an image build context
+backups
