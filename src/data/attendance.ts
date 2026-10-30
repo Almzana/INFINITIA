@@ -1,5 +1,7 @@
 // Placeholder attendance & turnover data for the HR dashboard.
 // Replace with data from the time-attendance system / HRIS.
+import { labelMap, t } from "@/i18n"
+import { formatDate } from "@/lib/format"
 import type { Employee } from "./mock"
 
 export type AttendanceStatus = "on-time" | "late" | "left" | "early-leave" | "leave" | "absent"
@@ -11,14 +13,7 @@ export interface AttendanceRecord {
   status: AttendanceStatus
 }
 
-export const attendanceStatusLabel: Record<AttendanceStatus, string> = {
-  "on-time": "ทำงานอยู่",
-  late: "มาสาย (ยังอยู่)",
-  left: "ออกงานแล้ว",
-  "early-leave": "ออกก่อนเวลา",
-  leave: "ลา",
-  absent: "ขาดงาน",
-}
+export const attendanceStatusLabel = labelMap<AttendanceStatus>("attendance.status", ["on-time", "late", "left", "early-leave", "leave", "absent"])
 
 const pad = (n: number) => String(n).padStart(2, "0")
 const time = (mins: number) => `${pad(Math.floor(mins / 60))}:${pad(mins % 60)}`
@@ -69,35 +64,51 @@ export function hourlyFlow(records: AttendanceRecord[]) {
   })
 }
 
-/** Monthly turnover for the last 12 months (placeholder). */
-export const turnoverTrend = [
-  { month: "พ.ย. 68", resigned: 1, hired: 2, headcount: 51 },
-  { month: "ธ.ค. 68", resigned: 2, hired: 1, headcount: 50 },
-  { month: "ม.ค. 69", resigned: 3, hired: 4, headcount: 51 },
-  { month: "ก.พ. 69", resigned: 1, hired: 2, headcount: 52 },
-  { month: "มี.ค. 69", resigned: 2, hired: 3, headcount: 53 },
-  { month: "เม.ย. 69", resigned: 4, hired: 2, headcount: 51 },
-  { month: "พ.ค. 69", resigned: 1, hired: 3, headcount: 53 },
-  { month: "มิ.ย. 69", resigned: 2, hired: 3, headcount: 54 },
-  { month: "ก.ค. 69", resigned: 1, hired: 2, headcount: 55 },
-  { month: "ส.ค. 69", resigned: 2, hired: 5, headcount: 58 },
-  { month: "ก.ย. 69", resigned: 1, hired: 4, headcount: 61 },
-  { month: "ต.ค. 69", resigned: 1, hired: 4, headcount: 64 },
-].map((m) => ({ ...m, rate: Math.round((m.resigned / m.headcount) * 1000) / 10 }))
+/** Short month label for "yyyy-MM", e.g. "พ.ย. 68" / "Nov 25". */
+export const monthLabel = (ym: string) => formatDate(`${ym}-01`, "MMM yyyy").replace(/\d{2}(\d{2})$/, "$1")
 
-export const resignReasons = [
-  { reason: "ได้งานใหม่ / เงินเดือนสูงกว่า", count: 8 },
-  { reason: "ศึกษาต่อ", count: 3 },
-  { reason: "ย้ายภูมิลำเนา", count: 3 },
-  { reason: "ภาระครอบครัว", count: 2 },
-  { reason: "ไม่ผ่านทดลองงาน", count: 2 },
-  { reason: "อื่นๆ", count: 2 },
+/** Monthly turnover for the last 12 months (placeholder). `month` is the label in the current language. */
+export const turnoverTrend = [
+  { ym: "2025-11", resigned: 1, hired: 2, headcount: 51 },
+  { ym: "2025-12", resigned: 2, hired: 1, headcount: 50 },
+  { ym: "2026-01", resigned: 3, hired: 4, headcount: 51 },
+  { ym: "2026-02", resigned: 1, hired: 2, headcount: 52 },
+  { ym: "2026-03", resigned: 2, hired: 3, headcount: 53 },
+  { ym: "2026-04", resigned: 4, hired: 2, headcount: 51 },
+  { ym: "2026-05", resigned: 1, hired: 3, headcount: 53 },
+  { ym: "2026-06", resigned: 2, hired: 3, headcount: 54 },
+  { ym: "2026-07", resigned: 1, hired: 2, headcount: 55 },
+  { ym: "2026-08", resigned: 2, hired: 5, headcount: 58 },
+  { ym: "2026-09", resigned: 1, hired: 4, headcount: 61 },
+  { ym: "2026-10", resigned: 1, hired: 4, headcount: 64 },
+].map((m) => ({
+  ...m,
+  get month() {
+    return monthLabel(m.ym)
+  },
+  rate: Math.round((m.resigned / m.headcount) * 1000) / 10,
+}))
+
+export type ResignReason = "newJob" | "study" | "relocation" | "family" | "probation" | "other"
+export const resignReasonLabel = labelMap<ResignReason>("attendance.reason", ["newJob", "study", "relocation", "family", "probation", "other"])
+
+/** e.g. "2 ปี 4 เดือน" / "2 yr 4 mo" */
+export const tenureLabel = (months: number) =>
+  months >= 12 ? t("attendance.tenure.ym", { y: Math.floor(months / 12), m: months % 12 }) : t("attendance.tenure.m", { m: months })
+
+export const resignReasons: { key: ResignReason; count: number }[] = [
+  { key: "newJob", count: 8 },
+  { key: "study", count: 3 },
+  { key: "relocation", count: 3 },
+  { key: "family", count: 2 },
+  { key: "probation", count: 2 },
+  { key: "other", count: 2 },
 ]
 
-export const recentResignations = [
-  { name: "ศุภชัย ทองคำ", position: "Site Engineer", department: "ฝ่ายก่อสร้าง", lastDay: "2026-10-31", tenure: "2 ปี 4 เดือน", reason: "ได้งานใหม่ / เงินเดือนสูงกว่า", exitInterview: false },
-  { name: "จิราพร แสงทอง", position: "3D Visualizer", department: "ฝ่ายออกแบบภายใน", lastDay: "2026-11-15", tenure: "1 ปี 2 เดือน", reason: "ศึกษาต่อ", exitInterview: true },
-  { name: "อนุชา บุญมา", position: "Junior Architect", department: "ฝ่ายสถาปัตยกรรม", lastDay: "2026-09-30", tenure: "8 เดือน", reason: "ย้ายภูมิลำเนา", exitInterview: true },
-  { name: "ปวีณา ใจดี", position: "Sales Consultant", department: "ฝ่ายการตลาด", lastDay: "2026-08-31", tenure: "3 ปี 1 เดือน", reason: "ได้งานใหม่ / เงินเดือนสูงกว่า", exitInterview: true },
-  { name: "ภาณุ ศรีสุข", position: "Foreman", department: "ฝ่ายก่อสร้าง", lastDay: "2026-08-15", tenure: "4 เดือน", reason: "ไม่ผ่านทดลองงาน", exitInterview: false },
+export const recentResignations: { name: string; position: string; department: string; lastDay: string; tenureMonths: number; reason: ResignReason; exitInterview: boolean }[] = [
+  { name: "ศุภชัย ทองคำ", position: "Site Engineer", department: "ฝ่ายก่อสร้าง", lastDay: "2026-10-31", tenureMonths: 28, reason: "newJob", exitInterview: false },
+  { name: "จิราพร แสงทอง", position: "3D Visualizer", department: "ฝ่ายออกแบบภายใน", lastDay: "2026-11-15", tenureMonths: 14, reason: "study", exitInterview: true },
+  { name: "อนุชา บุญมา", position: "Junior Architect", department: "ฝ่ายสถาปัตยกรรม", lastDay: "2026-09-30", tenureMonths: 8, reason: "relocation", exitInterview: true },
+  { name: "ปวีณา ใจดี", position: "Sales Consultant", department: "ฝ่ายการตลาด", lastDay: "2026-08-31", tenureMonths: 37, reason: "newJob", exitInterview: true },
+  { name: "ภาณุ ศรีสุข", position: "Foreman", department: "ฝ่ายก่อสร้าง", lastDay: "2026-08-15", tenureMonths: 4, reason: "probation", exitInterview: false },
 ]

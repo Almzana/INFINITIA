@@ -1,12 +1,12 @@
 import * as React from "react"
 import { Link } from "react-router-dom"
 import { addDays, format, isSameDay, parseISO } from "date-fns"
-import { th } from "date-fns/locale"
 import { ChevronLeftIcon, ChevronRightIcon, CopyIcon, PlusIcon, SaveIcon, Trash2Icon } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -15,9 +15,11 @@ import { Tag } from "@/components/shared/tag"
 import type { Employee } from "@/data/mock"
 import { currentPhase, LABOR_RATE, type PhaseKey, phaseInfo, type Project } from "@/data/projects"
 import { projectDepartments, type TimeEntry, WEEK_HOURS, weekStartOf } from "@/data/timesheet"
+import { deptLabel, t } from "@/i18n"
 import { useAuth } from "@/lib/auth"
-import { formatDate } from "@/lib/format"
-import { newId, useStore } from "@/lib/store"
+import { formatDate, dateLocale } from "@/lib/format"
+import { useWeekTimesheet } from "@/hooks/use-week-timesheet"
+import { useStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 
 const DAYS = 6 // Mon–Sat: site teams often work Saturdays
@@ -43,8 +45,14 @@ function rowsFromEntries(entries: TimeEntry[]): Row[] {
 
 const sumRow = (r: Row) => Object.values(r.hours).reduce((s, h) => s + (Number(h) || 0), 0)
 
-function WeekEditor({ employee, weekStart, projects }: { employee: Employee; weekStart: Date; projects: Project[] }) {
-  const { state, dispatch } = useStore()
+function WeekEditor({ employee, weekStart, projects, onSave, loadWeek }: {
+  employee: Employee
+  weekStart: Date
+  projects: Project[]
+  onSave: (entries: Omit<TimeEntry, "id" | "employeeId">[]) => Promise<boolean>
+  loadWeek: (from: string, to: string) => Promise<TimeEntry[]>
+}) {
+  const { state } = useStore()
   const days = Array.from({ length: DAYS }, (_, i) => addDays(weekStart, i))
   const from = ymd(days[0])
   const to = ymd(days[DAYS - 1])
@@ -73,7 +81,7 @@ function WeekEditor({ employee, weekStart, projects }: { employee: Employee; wee
     if (!p) return
     const phase = (currentPhase(p) ?? p.phases[p.phases.length - 1]).key
     const key = `${projectId}|${phase}`
-    if (rows.some((r) => r.key === key)) return toast.info("มีแถวของโครงการและเฟสนี้อยู่แล้ว")
+    if (rows.some((r) => r.key === key)) return toast.info(t("timesheet.toast.rowExists"))
     update((rs) => [...rs, { key, projectId, phase, hours: {} }])
     setAddProject("")
   }
@@ -81,56 +89,60 @@ function WeekEditor({ employee, weekStart, projects }: { employee: Employee; wee
   const changePhase = (key: string, phase: PhaseKey) => {
     const row = rows.find((r) => r.key === key)!
     const nextKey = `${row.projectId}|${phase}`
-    if (rows.some((r) => r.key === nextKey)) return toast.info("มีแถวของเฟสนี้อยู่แล้ว")
+    if (rows.some((r) => r.key === nextKey)) return toast.info(t("timesheet.toast.phaseExists"))
     update((rs) => rs.map((r) => (r.key === key ? { ...r, key: nextKey, phase } : r)))
   }
 
-  const copyLastWeek = () => {
+  const copyLastWeek = async () => {
     const prevFrom = ymd(addDays(weekStart, -7))
     const prevTo = ymd(addDays(weekStart, -7 + DAYS - 1))
-    const prev = rowsFromEntries(state.timesheet.filter((t) => inWeek(t, prevFrom, prevTo)))
-    if (!prev.length) return toast.info("สัปดาห์ที่แล้วไม่มีการลงชั่วโมง")
+    // Fetch the previous week: it may be older than what the app has loaded
+    const prev = rowsFromEntries((await loadWeek(prevFrom, prevTo)).filter((t) => inWeek(t, prevFrom, prevTo)))
+    if (!prev.length) return toast.info(t("timesheet.toast.noLastWeek"))
     update(() =>
       prev.map((r) => ({
         ...r,
         hours: Object.fromEntries(Object.entries(r.hours).map(([d, h]) => [ymd(addDays(parseISO(d), 7)), h])),
       })),
     )
-    toast.success(`คัดลอก ${prev.length} แถวจากสัปดาห์ที่แล้ว`, { description: "ตรวจสอบแล้วกดบันทึก" })
+    toast.success(t("timesheet.toast.copied", { n: prev.length }), { description: t("timesheet.toast.copiedDesc") })
   }
 
   const dayTotal = (d: string) => rows.reduce((s, r) => s + (Number(r.hours[d]) || 0), 0)
   const weekTotal = rows.reduce((s, r) => s + sumRow(r), 0)
   const overDay = days.some((d) => dayTotal(ymd(d)) > 12)
 
-  const save = () => {
-    if (overDay) return toast.error("มีบางวันลงเกิน 12 ชั่วโมง กรุณาตรวจสอบ")
-    const entries: TimeEntry[] = rows.flatMap((r) =>
+  const save = async () => {
+    if (overDay) return toast.error(t("timesheet.toast.overDay"))
+    const entries = rows.flatMap((r) =>
       Object.entries(r.hours)
         .filter(([, h]) => Number(h) > 0)
-        .map(([date, h]) => ({ id: newId(), employeeId: employee.id, projectId: r.projectId, phase: r.phase, date, hours: Number(h) })),
+        .map(([date, h]) => ({ projectId: r.projectId, phase: r.phase, date, hours: Number(h) })),
     )
-    dispatch({ type: "timesheet/week", employeeId: employee.id, from, to, entries })
+    if (!(await onSave(entries))) return
     setRows((rs) => rs.filter((r) => sumRow(r) > 0))
     setDirty(false)
-    toast.success("บันทึกชั่วโมงงานแล้ว", { description: `${employee.firstName} · ${weekTotal} ชม. · ต้นทุน ฿${(weekTotal * LABOR_RATE).toLocaleString()}` })
+    toast.success(t("timesheet.toast.saved"), {
+      description: t("timesheet.toast.savedDesc", { name: employee.firstName, hours: weekTotal, cost: (weekTotal * LABOR_RATE).toLocaleString() }),
+    })
   }
 
   return (
     <Card>
       <CardContent className="space-y-4">
+        {projects.length === 0 && <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">{t("timesheet.noProjects")}</p>}
         <div className="overflow-x-auto rounded-lg border">
           <Table className="min-w-[760px]">
             <TableHeader className="bg-muted/60">
               <TableRow>
-                <TableHead className="w-[34%]">โครงการ / เฟส</TableHead>
+                <TableHead className="w-[34%]">{t("timesheet.editor.projectPhase")}</TableHead>
                 {days.map((d) => (
                   <TableHead key={d.toISOString()} className={cn("text-center", isSameDay(d, today) && "text-primary")}>
-                    <span className="block text-xs">{format(d, "EEE", { locale: th })}</span>
+                    <span className="block text-xs">{format(d, "EEE", { locale: dateLocale() })}</span>
                     <span className="font-semibold">{format(d, "d")}</span>
                   </TableHead>
                 ))}
-                <TableHead className="text-right">รวม</TableHead>
+                <TableHead className="text-right">{t("timesheet.editor.total")}</TableHead>
                 <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
@@ -173,7 +185,7 @@ function WeekEditor({ employee, weekStart, projects }: { employee: Employee; wee
                     })}
                     <TableCell className="text-right font-medium tabular-nums">{sumRow(r)}</TableCell>
                     <TableCell>
-                      <Button variant="ghost" size="icon-sm" aria-label="ลบแถว" onClick={() => update((rs) => rs.filter((x) => x.key !== r.key))}>
+                      <Button variant="ghost" size="icon-sm" aria-label={t("timesheet.editor.removeRow")} onClick={() => update((rs) => rs.filter((x) => x.key !== r.key))}>
                         <Trash2Icon />
                       </Button>
                     </TableCell>
@@ -183,19 +195,19 @@ function WeekEditor({ employee, weekStart, projects }: { employee: Employee; wee
               {rows.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={DAYS + 3}>
-                    <EmptyState title="ยังไม่มีการลงชั่วโมงในสัปดาห์นี้" description="เพิ่มโครงการด้านล่าง หรือคัดลอกจากสัปดาห์ที่แล้ว" />
+                    <EmptyState title={t("timesheet.editor.emptyTitle")} description={t("timesheet.editor.emptyDesc")} />
                   </TableCell>
                 </TableRow>
               )}
             </TableBody>
             <TableFooter>
               <TableRow>
-                <TableCell className="font-medium">รวมต่อวัน</TableCell>
+                <TableCell className="font-medium">{t("timesheet.editor.dayTotal")}</TableCell>
                 {days.map((d) => {
-                  const t = dayTotal(ymd(d))
+                  const total = dayTotal(ymd(d))
                   return (
-                    <TableCell key={d.toISOString()} className={cn("text-center font-semibold tabular-nums", t > 12 ? "text-destructive" : t >= 8 ? "text-success" : t > 0 ? "" : "text-muted-foreground")}>
-                      {t || "–"}
+                    <TableCell key={d.toISOString()} className={cn("text-center font-semibold tabular-nums", total > 12 ? "text-destructive" : total >= 8 ? "text-success" : total > 0 ? "" : "text-muted-foreground")}>
+                      {total || "–"}
                     </TableCell>
                   )
                 })}
@@ -211,7 +223,7 @@ function WeekEditor({ employee, weekStart, projects }: { employee: Employee; wee
             <Select value={addProject} onValueChange={addRow}>
               <SelectTrigger className="w-64">
                 <PlusIcon className="size-4" />
-                <SelectValue placeholder="เพิ่มโครงการ" />
+                <SelectValue placeholder={t("timesheet.editor.addProject")} />
               </SelectTrigger>
               <SelectContent>
                 {active.map((p) => (
@@ -222,18 +234,18 @@ function WeekEditor({ employee, weekStart, projects }: { employee: Employee; wee
               </SelectContent>
             </Select>
             <Button variant="outline" onClick={copyLastWeek}>
-              <CopyIcon /> คัดลอกสัปดาห์ที่แล้ว
+              <CopyIcon /> {t("timesheet.editor.copyLastWeek")}
             </Button>
           </div>
           <div className="flex items-center gap-3">
-            {dirty && <span className="text-sm text-warning">มีการแก้ไขที่ยังไม่บันทึก</span>}
+            {dirty && <span className="text-sm text-warning">{t("timesheet.editor.unsaved")}</span>}
             <Button onClick={save} disabled={!dirty}>
-              <SaveIcon /> บันทึก
+              <SaveIcon /> {t("common.save")}
             </Button>
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          เป้าหมาย {WEEK_HOURS} ชม./สัปดาห์ · ต้นทุนแรงงานคิดที่ ฿{LABOR_RATE}/ชม. และนำไปคำนวณกำไรของโครงการโดยอัตโนมัติ
+          {t("timesheet.editor.footnote", { target: WEEK_HOURS, rate: LABOR_RATE })}
         </p>
       </CardContent>
     </Card>
@@ -259,9 +271,9 @@ function TeamOverview({ staff, weekStart, onPick }: { staff: Employee[]; weekSta
   return (
     <Card>
       <CardHeader>
-        <CardTitle>ภาพรวมทีมสัปดาห์นี้</CardTitle>
+        <CardTitle>{t("timesheet.team.title")}</CardTitle>
         <CardDescription>
-          ลงครบตามวันทำงาน {complete} / {rows.length} คน (คาดหวัง {expected} ชม.) · รวม {rows.reduce((s, r) => s + r.hours, 0).toLocaleString()} ชม.
+          {t("timesheet.team.summary", { complete, total: rows.length, expected, hours: rows.reduce((s, r) => s + r.hours, 0).toLocaleString() })}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -269,12 +281,12 @@ function TeamOverview({ staff, weekStart, onPick }: { staff: Employee[]; weekSta
           <Table>
             <TableHeader className="bg-muted/60">
               <TableRow>
-                <TableHead>พนักงาน</TableHead>
-                <TableHead className="hidden md:table-cell">ฝ่าย</TableHead>
-                <TableHead className="text-right">ชั่วโมง</TableHead>
-                <TableHead className="hidden text-right sm:table-cell">วันที่ลง</TableHead>
-                <TableHead className="hidden text-right sm:table-cell">โครงการ</TableHead>
-                <TableHead className="text-right">สถานะ</TableHead>
+                <TableHead>{t("timesheet.team.employee")}</TableHead>
+                <TableHead className="hidden md:table-cell">{t("timesheet.team.department")}</TableHead>
+                <TableHead className="text-right">{t("timesheet.team.hours")}</TableHead>
+                <TableHead className="hidden text-right sm:table-cell">{t("timesheet.team.days")}</TableHead>
+                <TableHead className="hidden text-right sm:table-cell">{t("timesheet.team.projects")}</TableHead>
+                <TableHead className="text-right">{t("timesheet.team.status")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -286,13 +298,13 @@ function TeamOverview({ staff, weekStart, onPick }: { staff: Employee[]; weekSta
                     </p>
                     <p className="text-xs text-muted-foreground">{e.position}</p>
                   </TableCell>
-                  <TableCell className="hidden text-muted-foreground md:table-cell">{e.department}</TableCell>
+                  <TableCell className="hidden text-muted-foreground md:table-cell">{deptLabel(e.department)}</TableCell>
                   <TableCell className="text-right font-medium tabular-nums">{hours}</TableCell>
                   <TableCell className="hidden text-right tabular-nums sm:table-cell">{days}</TableCell>
                   <TableCell className="hidden text-right tabular-nums sm:table-cell">{projects}</TableCell>
                   <TableCell className="text-right">
                     <Tag type={hours >= expected ? "success" : hours > 0 ? "warning" : "danger"} dot>
-                      {hours >= expected ? "ครบ" : hours > 0 ? `ขาด ${expected - hours} ชม.` : "ยังไม่ลง"}
+                      {hours >= expected ? t("timesheet.team.complete") : hours > 0 ? t("timesheet.team.short", { n: expected - hours }) : t("timesheet.team.none")}
                     </Tag>
                   </TableCell>
                 </TableRow>
@@ -312,29 +324,34 @@ export default function TimesheetPage() {
     () => state.employees.filter((e) => e.status !== "resigned" && projectDepartments.includes(e.department)),
     [state.employees],
   )
-  const [employeeId, setEmployeeId] = React.useState(() => staff[0]?.id ?? "")
+  // Staff log their own time; executives may pick anyone and see the team overview (the API enforces it)
+  const isExecutive = user?.role === "executive"
+  const [picked, setEmployeeId] = React.useState("")
+  // Until someone is picked, default to the first person once the directory has loaded
+  const employeeId = isExecutive ? picked || (staff[0]?.id ?? "") : (user?.employeeId ?? "")
   const [weekStart, setWeekStart] = React.useState(() => weekStartOf(new Date()))
   const [tab, setTab] = React.useState("mine")
-  const employee = staff.find((e) => e.id === employeeId)
-  const canSeeTeam = user?.role === "executive" || user?.role === "hr"
+  const employee = state.employees.find((e) => e.id === employeeId)
+  const canSeeTeam = isExecutive
+  const week = useWeekTimesheet(weekStart, DAYS)
   const weekKey = ymd(weekStart)
   const isThisWeek = weekKey === ymd(weekStartOf(new Date()))
 
   return (
     <>
       <PageHeader
-        title="บันทึกชั่วโมงงาน"
-        description="ลงเวลาทำงานแยกตามโครงการและเฟส เพื่อคำนวณต้นทุนแรงงานและกำไรจริงของแต่ละโครงการ"
+        title={t("timesheet.title")}
+        description={t("timesheet.description")}
         actions={
           <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" className="bg-background" aria-label="สัปดาห์ก่อน" onClick={() => setWeekStart((w) => addDays(w, -7))}>
+            <Button variant="outline" size="icon" className="bg-background" aria-label={t("timesheet.prevWeek")} onClick={() => setWeekStart((w) => addDays(w, -7))}>
               <ChevronLeftIcon />
             </Button>
             <div className="min-w-44 rounded-lg border bg-background px-3 py-1.5 text-center text-sm">
               {formatDate(weekKey, "d MMM")} – {formatDate(ymd(addDays(weekStart, DAYS - 1)), "d MMM yyyy")}
-              {isThisWeek && <span className="ml-1 text-xs text-primary">(สัปดาห์นี้)</span>}
+              {isThisWeek && <span className="ml-1 text-xs text-primary">{t("timesheet.thisWeek")}</span>}
             </div>
-            <Button variant="outline" size="icon" className="bg-background" aria-label="สัปดาห์ถัดไป" onClick={() => setWeekStart((w) => addDays(w, 7))}>
+            <Button variant="outline" size="icon" className="bg-background" aria-label={t("timesheet.nextWeek")} onClick={() => setWeekStart((w) => addDays(w, 7))}>
               <ChevronRightIcon />
             </Button>
           </div>
@@ -344,16 +361,17 @@ export default function TimesheetPage() {
       <Tabs value={tab} onValueChange={setTab} className="gap-4">
         {canSeeTeam && (
           <TabsList>
-            <TabsTrigger value="mine">ลงชั่วโมง</TabsTrigger>
-            <TabsTrigger value="team">ภาพรวมทีม</TabsTrigger>
+            <TabsTrigger value="mine">{t("timesheet.tab.mine")}</TabsTrigger>
+            <TabsTrigger value="team">{t("timesheet.tab.team")}</TabsTrigger>
           </TabsList>
         )}
         <TabsContent value="mine" className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-muted-foreground">ลงชั่วโมงให้:</span>
+          {isExecutive && (
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-muted-foreground">{t("timesheet.logFor")}</span>
             <Select value={employeeId} onValueChange={setEmployeeId}>
               <SelectTrigger className="w-72 bg-background">
-                <SelectValue placeholder="เลือกพนักงาน" />
+                <SelectValue placeholder={t("timesheet.pickEmployee")} />
               </SelectTrigger>
               <SelectContent>
                 {staff.map((e) => (
@@ -363,14 +381,27 @@ export default function TimesheetPage() {
                 ))}
               </SelectContent>
             </Select>
-            <span className="text-xs text-muted-foreground">(โหมดสาธิต — ระบบจริงจะใช้บัญชีที่ล็อกอิน)</span>
-          </div>
-          {employee ? (
+            </div>
+          )}
+          {!week.ready ? (
+            <Skeleton className="h-72 w-full" />
+          ) : employee ? (
             // Remount the editor whenever the person or week changes so its draft starts from saved data
-            <WeekEditor key={`${employee.id}-${weekKey}`} employee={employee} weekStart={weekStart} projects={state.projects} />
+            <WeekEditor
+              key={`${employee.id}-${weekKey}`}
+              employee={employee}
+              weekStart={weekStart}
+              // Only projects this person is a member of (the API refuses others too)
+              projects={state.projects.filter((p) => p.memberIds?.includes(employee.id))}
+              onSave={(entries) => week.saveWeek(employee.id, entries)}
+              loadWeek={(from, to) => week.loadEntries(employee.id, from, to)}
+            />
           ) : (
             <Card>
-              <EmptyState title="ไม่มีพนักงานในฝ่ายที่ลงชั่วโมงโครงการ" />
+              <EmptyState
+                title={isExecutive ? t("timesheet.noStaff") : t("timesheet.notLinked")}
+                description={isExecutive ? undefined : t("timesheet.notLinkedDesc")}
+              />
             </Card>
           )}
         </TabsContent>

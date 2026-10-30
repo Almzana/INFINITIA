@@ -14,12 +14,14 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { EmployeeAvatar } from "@/components/shared/employee-avatar"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { type ChartConfig, ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { MyWorkSection } from "@/components/dashboard/my-work-section"
 import { EmptyState, PageHeader, StatCard } from "@/components/shared/misc"
 import { Tag, type TagType } from "@/components/shared/tag"
 import {
@@ -28,10 +30,13 @@ import {
   buildAttendance,
   hourlyFlow,
   recentResignations,
+  resignReasonLabel,
   resignReasons,
+  tenureLabel,
   turnoverTrend,
 } from "@/data/attendance"
 import { departments } from "@/data/mock"
+import { deptLabel, t } from "@/i18n"
 import { downloadCsv, formatDate, initials, todayISO } from "@/lib/format"
 import { useStore } from "@/lib/store"
 
@@ -44,21 +49,22 @@ const attTag: Record<AttendanceStatus, TagType> = {
   absent: "danger",
 }
 
+// Chart labels are getters so they are read in the current language at render time
 const flowConfig = {
-  checkIn: { label: "เข้างาน", color: "var(--chart-1)" },
-  checkOut: { label: "ออกงาน", color: "var(--chart-2)" },
+  checkIn: { get label() { return t("dashboard.hr.chart.checkIn") }, color: "var(--chart-1)" },
+  checkOut: { get label() { return t("dashboard.hr.chart.checkOut") }, color: "var(--chart-2)" },
 } satisfies ChartConfig
 
 const turnoverConfig = {
-  resigned: { label: "ลาออก", color: "var(--chart-4)" },
-  hired: { label: "รับเข้าใหม่", color: "var(--chart-5)" },
-  rate: { label: "อัตราลาออก (%)", color: "var(--chart-1)" },
+  resigned: { get label() { return t("dashboard.hr.chart.resigned") }, color: "var(--chart-4)" },
+  hired: { get label() { return t("dashboard.hr.chart.hired") }, color: "var(--chart-5)" },
+  rate: { get label() { return t("dashboard.hr.chart.rate") }, color: "var(--chart-1)" },
 } satisfies ChartConfig
 
 const deptConfig = {
-  present: { label: "มาทำงาน", color: "var(--chart-1)" },
-  late: { label: "มาสาย", color: "var(--warning)" },
-  away: { label: "ลา/ขาด", color: "var(--chart-4)" },
+  present: { get label() { return t("dashboard.hr.chart.present") }, color: "var(--chart-1)" },
+  late: { get label() { return t("dashboard.hr.chart.late") }, color: "var(--warning)" },
+  away: { get label() { return t("dashboard.hr.chart.away") }, color: "var(--chart-4)" },
 } satisfies ChartConfig
 
 const reasonColors = ["#3a352e", "#8c8277", "#b8a58a", "#a35f4f", "#6b7f6a", "#d4c4ad"]
@@ -90,14 +96,16 @@ export default function HrDashboard() {
   const byDept = departments.map((d) => {
     const rs = records.filter((r) => empMap.get(r.employeeId)?.department === d)
     return {
-      dept: d.replace("ฝ่าย", ""),
+      // Short axis label: Thai names drop the department prefix
+      dept: deptLabel(d).replace("ฝ่าย", ""),
       present: rs.filter((r) => r.checkIn && r.checkIn <= "09:00").length,
       late: rs.filter((r) => r.checkIn && r.checkIn > "09:00").length,
       away: rs.filter((r) => !r.checkIn).length,
     }
   })
 
-  const reasonsConfig = Object.fromEntries(resignReasons.map((r, i) => [r.reason, { label: r.reason, color: reasonColors[i] }])) satisfies ChartConfig
+  const reasons = resignReasons.map((r) => ({ ...r, reason: resignReasonLabel[r.key] }))
+  const reasonsConfig = Object.fromEntries(reasons.map((r, i) => [r.reason, { label: r.reason, color: reasonColors[i] }])) satisfies ChartConfig
 
   const list = records
     .filter((r) => {
@@ -115,44 +123,46 @@ export default function HrDashboard() {
 
   const exportCsv = () => {
     downloadCsv(`attendance-${today}.csv`, [
-      ["รหัส", "ชื่อ", "ฝ่าย", "เวลาเข้า", "เวลาออก", "สถานะ"],
+      [t("dashboard.hr.csv.code"), t("dashboard.hr.csv.name"), t("dashboard.hr.csv.dept"), t("dashboard.hr.csv.in"), t("dashboard.hr.csv.out"), t("dashboard.hr.csv.status")],
       ...records.map((r) => {
         const e = empMap.get(r.employeeId)
-        return [e?.code ?? "", `${e?.firstName} ${e?.lastName}`, e?.department ?? "", r.checkIn ?? "", r.checkOut ?? "", attendanceStatusLabel[r.status]]
+        return [e?.code ?? "", `${e?.firstName} ${e?.lastName}`, e ? deptLabel(e.department) : "", r.checkIn ?? "", r.checkOut ?? "", attendanceStatusLabel[r.status]]
       }),
     ])
-    toast.success(`ส่งออกข้อมูลเข้า-ออกงาน ${records.length} รายการแล้ว`)
+    toast.success(t("dashboard.hr.exported", { n: records.length }))
   }
 
   return (
     <>
       <PageHeader
-        title="แดชบอร์ดฝ่ายบุคคล"
-        description={`การเข้า-ออกงานวันนี้ (${formatDate(today, "EEEEที่ d MMM yyyy")} · อัปเดต 17:45 น.) และการลาออกของพนักงาน`}
+        title={t("dashboard.hr.title")}
+        description={t("dashboard.hr.description", { date: formatDate(today, t("dashboard.hr.datePattern")) })}
         actions={
           <Button variant="outline" className="bg-background" onClick={exportCsv}>
-            <DownloadIcon /> ส่งออกเวลาเข้า-ออก
+            <DownloadIcon /> {t("dashboard.hr.export")}
           </Button>
         }
       />
 
       <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
         <InfoIcon className="mt-0.5 size-4 shrink-0" />
-        <p>ข้อมูลเวลาเข้า-ออกงานและการลาออกเป็นข้อมูลจำลอง — รอเชื่อมต่อกับเครื่องสแกนนิ้ว/ระบบลงเวลาและ HRIS</p>
+        <p>{t("dashboard.hr.mockNotice")}</p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="มาทำงานวันนี้" value={`${present} / ${total}`} icon={UsersIcon} hint={`${Math.round((present / total) * 100)}% · ลา/ขาด ${away} คน`} />
-        <StatCard label="ออกงานแล้ว" value={checkedOut} icon={LogOutIcon} tone="success" hint={`ยังอยู่ในออฟฟิศ ${stillIn} คน`} />
-        <StatCard label="มาสายวันนี้" value={late} icon={ClockAlertIcon} tone="warning" hint="เข้างานหลัง 09:00 น." />
-        <StatCard label="ลาออกปีนี้" value={resignedYtd} icon={UserMinusIcon} tone="danger" hint={`อัตราลาออก 12 เดือน ${annualRate.toFixed(1)}%`} />
+        <StatCard label={t("dashboard.hr.stat.present")} value={`${present} / ${total}`} icon={UsersIcon} hint={t("dashboard.hr.stat.presentHint", { pct: Math.round((present / total) * 100), n: away })} />
+        <StatCard label={t("dashboard.hr.stat.checkedOut")} value={checkedOut} icon={LogOutIcon} tone="success" hint={t("dashboard.hr.stat.stillIn", { n: stillIn })} />
+        <StatCard label={t("dashboard.hr.stat.late")} value={late} icon={ClockAlertIcon} tone="warning" hint={t("dashboard.hr.stat.lateHint")} />
+        <StatCard label={t("dashboard.hr.stat.resigned")} value={resignedYtd} icon={UserMinusIcon} tone="danger" hint={t("dashboard.hr.stat.rateHint", { rate: annualRate.toFixed(1) })} />
       </div>
+
+      <MyWorkSection />
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>จำนวนคนเข้า-ออกงานรายชั่วโมง</CardTitle>
-            <CardDescription>เวลาทำงาน 09:00–17:30 น.</CardDescription>
+            <CardTitle>{t("dashboard.hr.hourly")}</CardTitle>
+            <CardDescription>{t("dashboard.hr.hourlyDesc")}</CardDescription>
           </CardHeader>
           <CardContent>
             <ChartContainer config={flowConfig} className="h-64 w-full">
@@ -171,8 +181,8 @@ export default function HrDashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle>สถานะวันนี้</CardTitle>
-            <CardDescription>พนักงานทั้งหมด {total} คน</CardDescription>
+            <CardTitle>{t("dashboard.hr.statusToday")}</CardTitle>
+            <CardDescription>{t("dashboard.hr.totalEmployees", { n: total })}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {(["on-time", "late", "left", "early-leave", "leave", "absent"] as AttendanceStatus[]).map((s) => {
@@ -183,7 +193,7 @@ export default function HrDashboard() {
                     <Tag type={attTag[s]} dot>
                       {attendanceStatusLabel[s]}
                     </Tag>
-                    <span className="font-medium tabular-nums">{n} คน</span>
+                    <span className="font-medium tabular-nums">{t("common.people", { n })}</span>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                     <div className="h-full rounded-full bg-primary/70" style={{ width: `${(n / total) * 100}%` }} />
@@ -197,41 +207,41 @@ export default function HrDashboard() {
 
       <Card>
         <CardHeader>
-          <CardTitle>รายการเข้า-ออกงานวันนี้</CardTitle>
-          <CardDescription>เรียงตามเวลาออกงานล่าสุด</CardDescription>
+          <CardTitle>{t("dashboard.hr.list")}</CardTitle>
+          <CardDescription>{t("dashboard.hr.listDesc")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)}>
               <TabsList>
-                <TabsTrigger value="all">ทั้งหมด</TabsTrigger>
-                <TabsTrigger value="out">ออกงานแล้ว</TabsTrigger>
-                <TabsTrigger value="in">ยังอยู่</TabsTrigger>
-                <TabsTrigger value="issue">ผิดปกติ</TabsTrigger>
+                <TabsTrigger value="all">{t("common.all")}</TabsTrigger>
+                <TabsTrigger value="out">{t("dashboard.hr.filter.out")}</TabsTrigger>
+                <TabsTrigger value="in">{t("dashboard.hr.filter.in")}</TabsTrigger>
+                <TabsTrigger value="issue">{t("dashboard.hr.filter.issue")}</TabsTrigger>
               </TabsList>
             </Tabs>
             <div className="relative sm:w-64">
               <SearchIcon className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input className="pl-8" placeholder="ค้นหาชื่อ หรือฝ่าย..." value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input className="pl-8" placeholder={t("dashboard.hr.searchPlaceholder")} value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
           </div>
           <div className="max-h-[420px] overflow-auto rounded-lg border">
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-muted">
                 <TableRow>
-                  <TableHead>พนักงาน</TableHead>
-                  <TableHead className="hidden md:table-cell">ฝ่าย</TableHead>
+                  <TableHead>{t("dashboard.hr.col.employee")}</TableHead>
+                  <TableHead className="hidden md:table-cell">{t("dashboard.hr.col.dept")}</TableHead>
                   <TableHead>
                     <span className="inline-flex items-center gap-1">
-                      <LogInIcon className="size-3.5" /> เข้า
+                      <LogInIcon className="size-3.5" /> {t("dashboard.hr.col.in")}
                     </span>
                   </TableHead>
                   <TableHead>
                     <span className="inline-flex items-center gap-1">
-                      <LogOutIcon className="size-3.5" /> ออก
+                      <LogOutIcon className="size-3.5" /> {t("dashboard.hr.col.out")}
                     </span>
                   </TableHead>
-                  <TableHead className="text-right">สถานะ</TableHead>
+                  <TableHead className="text-right">{t("dashboard.hr.col.status")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -242,9 +252,7 @@ export default function HrDashboard() {
                     <TableRow key={r.employeeId}>
                       <TableCell>
                         <div className="flex items-center gap-2.5">
-                          <Avatar className="size-8">
-                            <AvatarFallback className="bg-primary/10 text-xs">{e ? initials(e.firstName, e.lastName) : "?"}</AvatarFallback>
-                          </Avatar>
+                          <EmployeeAvatar person={e} className="size-8" fallbackClassName="text-xs" />
                           <div>
                             <p className="font-medium">
                               {e?.firstName} {e?.lastName}
@@ -253,7 +261,7 @@ export default function HrDashboard() {
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="hidden text-muted-foreground md:table-cell">{e?.department}</TableCell>
+                      <TableCell className="hidden text-muted-foreground md:table-cell">{e && deptLabel(e.department)}</TableCell>
                       <TableCell className={isLate ? "font-medium text-warning tabular-nums" : "tabular-nums"}>{r.checkIn ?? "—"}</TableCell>
                       <TableCell className={r.status === "early-leave" ? "font-medium text-destructive tabular-nums" : "tabular-nums"}>{r.checkOut ?? "—"}</TableCell>
                       <TableCell className="text-right">
@@ -280,8 +288,8 @@ export default function HrDashboard() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>การมาทำงานแยกตามฝ่าย</CardTitle>
-            <CardDescription>วันนี้</CardDescription>
+            <CardTitle>{t("dashboard.hr.byDept")}</CardTitle>
+            <CardDescription>{t("common.today")}</CardDescription>
           </CardHeader>
           <CardContent>
             <ChartContainer config={deptConfig} className="h-64 w-full">
@@ -301,8 +309,8 @@ export default function HrDashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle>แนวโน้มการลาออก 12 เดือน</CardTitle>
-            <CardDescription>จำนวนคนลาออก / รับเข้าใหม่ และอัตราลาออกรายเดือน</CardDescription>
+            <CardTitle>{t("dashboard.hr.turnover")}</CardTitle>
+            <CardDescription>{t("dashboard.hr.turnoverDesc")}</CardDescription>
           </CardHeader>
           <CardContent>
             <ChartContainer config={turnoverConfig} className="h-64 w-full">
@@ -325,22 +333,22 @@ export default function HrDashboard() {
       <div className="grid gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader>
-            <CardTitle>สาเหตุการลาออก</CardTitle>
-            <CardDescription>12 เดือนล่าสุด</CardDescription>
+            <CardTitle>{t("dashboard.hr.reasons")}</CardTitle>
+            <CardDescription>{t("dashboard.hr.last12")}</CardDescription>
           </CardHeader>
           <CardContent>
             <ChartContainer config={reasonsConfig} className="mx-auto aspect-square h-44">
               <PieChart>
                 <ChartTooltip content={<ChartTooltipContent nameKey="reason" hideLabel />} />
-                <Pie data={resignReasons} dataKey="count" nameKey="reason" innerRadius={44} outerRadius={76} paddingAngle={2}>
-                  {resignReasons.map((r, i) => (
+                <Pie data={reasons} dataKey="count" nameKey="reason" innerRadius={44} outerRadius={76} paddingAngle={2}>
+                  {reasons.map((r, i) => (
                     <Cell key={r.reason} fill={reasonColors[i]} />
                   ))}
                 </Pie>
               </PieChart>
             </ChartContainer>
             <ul className="mt-3 space-y-1.5 text-xs">
-              {resignReasons.map((r, i) => (
+              {reasons.map((r, i) => (
                 <li key={r.reason} className="flex items-center gap-2">
                   <span className="size-2 rounded-full" style={{ background: reasonColors[i] }} />
                   <span className="flex-1 text-muted-foreground">{r.reason}</span>
@@ -353,12 +361,12 @@ export default function HrDashboard() {
 
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>พนักงานที่ลาออกล่าสุด</CardTitle>
-            <CardDescription>รวมคนที่แจ้งลาออกล่วงหน้า</CardDescription>
+            <CardTitle>{t("dashboard.hr.recent")}</CardTitle>
+            <CardDescription>{t("dashboard.hr.recentDesc")}</CardDescription>
             <CardAction>
               <Button variant="link" asChild className="h-auto p-0">
                 <Link to="/employees">
-                  ข้อมูลพนักงาน <ArrowRightIcon />
+                  {t("dashboard.hr.employeeData")} <ArrowRightIcon />
                 </Link>
               </Button>
             </CardAction>
@@ -375,14 +383,14 @@ export default function HrDashboard() {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium">{r.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        {r.position} · {r.department} · อายุงาน {r.tenure}
+                        {r.position} · {deptLabel(r.department)} · {t("dashboard.hr.tenure", { tenure: tenureLabel(r.tenureMonths) })}
                       </p>
-                      <p className="text-xs text-muted-foreground">สาเหตุ: {r.reason}</p>
+                      <p className="text-xs text-muted-foreground">{t("dashboard.hr.reason", { reason: resignReasonLabel[r.reason] })}</p>
                     </div>
                     <div className="flex flex-col items-end gap-1">
-                      <Tag type={upcoming ? "warning" : "info"}>{upcoming ? "วันสุดท้าย" : "ออกแล้ว"} {formatDate(r.lastDay, "d MMM yy")}</Tag>
+                      <Tag type={upcoming ? "warning" : "info"}>{upcoming ? t("dashboard.hr.lastDay") : t("dashboard.hr.left")} {formatDate(r.lastDay, "d MMM yy")}</Tag>
                       <span className={r.exitInterview ? "text-xs text-success" : "text-xs text-destructive"}>
-                        {r.exitInterview ? "สัมภาษณ์ออกแล้ว" : "ยังไม่สัมภาษณ์ออก"}
+                        {r.exitInterview ? t("dashboard.hr.exitDone") : t("dashboard.hr.exitPending")}
                       </span>
                     </div>
                   </li>

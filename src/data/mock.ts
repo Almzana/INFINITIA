@@ -1,5 +1,9 @@
 // Mock data for the demo. Replace with real API calls (see src/lib/api.ts).
 
+import { format } from "date-fns"
+import { labelMap } from "@/i18n"
+import { dateLocale } from "@/lib/format"
+
 export type EmployeeStatus = "active" | "probation" | "leave" | "resigned"
 
 export interface Employee {
@@ -14,7 +18,19 @@ export interface Employee {
   position: string
   status: EmployeeStatus
   startDate: string
-  salary: number
+  // Sensitive: the API only returns these to HR / executives
+  salary?: number
+  birthDate?: string | null
+  address?: string | null
+  emergencyName?: string | null
+  emergencyPhone?: string | null
+  /** Login account; null when the employee cannot sign in yet */
+  username?: string | null
+  role?: "executive" | "hr" | "staff" | null
+  /** Team leader (employee id); null = none */
+  managerId?: string | null
+  /** Set when the employee has a profile photo (cache-busting version) */
+  photoVersion?: number | null
 }
 
 export type LeaveType = "sick" | "vacation" | "personal" | "maternity"
@@ -30,6 +46,12 @@ export interface LeaveRequest {
   reason: string
   status: LeaveStatus
   createdAt: string
+  /** Pending only: waiting for the Leader, then for HR (from the API) */
+  stage?: "leader" | "hr" | null
+  /** The requester's Leader when the request was filed */
+  approverEmployeeId?: string | null
+  /** The signed-in user may approve / reject it now (decided by the API) */
+  canDecide?: boolean
 }
 
 export interface Announcement {
@@ -58,6 +80,14 @@ export interface Booking {
   start: string
   end: string
   owner: string
+  agenda?: string | null
+  /** Meeting minutes, written after the meeting */
+  minutes?: string | null
+  attendeeIds?: string[]
+  organizerUserId?: string | null
+  /** Set by the API for the signed-in user */
+  involvesMe?: boolean
+  canEdit?: boolean
 }
 
 export const departments = [
@@ -175,14 +205,24 @@ export const bookings: Booking[] = [
   { id: "b7", roomId: "r2", title: "นำเสนอแบบลูกค้า", date: TOMORROW, start: "09:30", end: "10:30", owner: "ฝ่ายการตลาด" },
 ]
 
-export const headcountTrend = [
-  { month: "พ.ค.", headcount: 52, hires: 3, exits: 1 },
-  { month: "มิ.ย.", headcount: 54, hires: 4, exits: 2 },
-  { month: "ก.ค.", headcount: 55, hires: 2, exits: 1 },
-  { month: "ส.ค.", headcount: 58, hires: 5, exits: 2 },
-  { month: "ก.ย.", headcount: 61, hires: 4, exits: 1 },
-  { month: "ต.ค.", headcount: 64, hires: 4, exits: 1 },
-]
+// [month 1-12, headcount, hires, exits]; `month` is a getter so chart labels follow the UI language
+export const headcountTrend = (
+  [
+    [5, 52, 3, 1],
+    [6, 54, 4, 2],
+    [7, 55, 2, 1],
+    [8, 58, 5, 2],
+    [9, 61, 4, 1],
+    [10, 64, 4, 1],
+  ] as const
+).map(([m, headcount, hires, exits]) => ({
+  headcount,
+  hires,
+  exits,
+  get month() {
+    return format(new Date(2026, m - 1, 1), "MMM", { locale: dateLocale() })
+  },
+}))
 
 export const activities = [
   { id: 1, who: "สุดา แสงทอง", what: "ยื่นใบลาพักร้อน 3 วัน", when: "5 นาทีที่แล้ว", type: "leave" },
@@ -192,22 +232,8 @@ export const activities = [
   { id: 5, who: "ธนพล บุญมา", what: "ได้รับอนุมัติลาป่วย 1 วัน", when: "เมื่อวาน", type: "leave" },
 ]
 
-export const leaveTypeLabel: Record<LeaveType, string> = {
-  sick: "ลาป่วย",
-  vacation: "ลาพักร้อน",
-  personal: "ลากิจ",
-  maternity: "ลาคลอด",
-}
+export const leaveTypeLabel = labelMap<LeaveType>("labels.leaveType", ["sick", "vacation", "personal", "maternity"])
 
-export const employeeStatusLabel: Record<EmployeeStatus, string> = {
-  active: "ทำงานอยู่",
-  probation: "ทดลองงาน",
-  leave: "ลาพัก",
-  resigned: "ลาออก",
-}
+export const employeeStatusLabel = labelMap<EmployeeStatus>("labels.employeeStatus", ["active", "probation", "leave", "resigned"])
 
-export const leaveStatusLabel: Record<LeaveStatus, string> = {
-  pending: "รออนุมัติ",
-  approved: "อนุมัติแล้ว",
-  rejected: "ไม่อนุมัติ",
-}
+export const leaveStatusLabel = labelMap<LeaveStatus>("labels.leaveStatus", ["pending", "approved", "rejected"])

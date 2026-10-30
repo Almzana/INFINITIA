@@ -13,7 +13,6 @@ import { EmptyState, FormItem, PageHeader, StatCard } from "@/components/shared/
 import { Tag } from "@/components/shared/tag"
 import { installmentTag, projectStatusTag, useProjectRows } from "@/components/projects/shared"
 import {
-  createProject,
   currentPhase,
   installmentStatusLabel,
   paymentSchedules,
@@ -23,8 +22,9 @@ import {
   projectStatusLabel,
   projectTypeLabel,
 } from "@/data/projects"
+import { t } from "@/i18n"
 import { formatDate, formatMillion, formatPercent, todayISO } from "@/lib/format"
-import { useStore } from "@/lib/store"
+import { useProjectActions } from "@/hooks/use-project-actions"
 import { cn } from "@/lib/utils"
 
 const emptyForm = {
@@ -40,7 +40,7 @@ const emptyForm = {
 }
 
 function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
-  const { state, dispatch } = useStore()
+  const actions = useProjectActions()
   const navigate = useNavigate()
   const [form, setForm] = React.useState(emptyForm)
   const [errors, setErrors] = React.useState<Partial<Record<keyof typeof emptyForm, string>>>({})
@@ -55,34 +55,35 @@ function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
   const set = (k: keyof typeof emptyForm, v: string) => setForm((f) => ({ ...f, [k]: v }))
   const value = Number(form.value) * 1_000_000
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     const next: typeof errors = {}
-    if (!form.name.trim()) next.name = "กรุณากรอกชื่อโครงการ"
-    if (!(Number(form.value) > 0)) next.value = "กรุณากรอกมูลค่าสัญญา"
-    if (!(Number(form.cost) > 0)) next.cost = "กรุณากรอกงบต้นทุน"
-    else if (Number(form.cost) >= Number(form.value)) next.cost = "งบต้นทุนควรน้อยกว่ามูลค่าสัญญา"
-    if (!form.end) next.end = "กรุณาเลือกวันสิ้นสุด"
-    else if (form.end <= form.start) next.end = "วันสิ้นสุดต้องอยู่หลังวันเริ่ม"
-    if (!form.manager.trim()) next.manager = "กรุณาระบุผู้ดูแลโครงการ"
+    if (!form.name.trim()) next.name = t("projects.new.errName")
+    if (!(Number(form.value) > 0)) next.value = t("projects.new.errValue")
+    if (!(Number(form.cost) > 0)) next.cost = t("projects.new.errCost")
+    else if (Number(form.cost) >= Number(form.value)) next.cost = t("projects.new.errCostTooHigh")
+    if (!form.end) next.end = t("projects.new.errEnd")
+    else if (form.end <= form.start) next.end = t("projects.new.errEndBeforeStart")
+    if (!form.manager.trim()) next.manager = t("projects.new.errManager")
     setErrors(next)
     if (Object.keys(next).length) return
 
-    const maxId = Math.max(0, ...state.projects.map((p) => Number(p.id.replace(/\D/g, "")) || 0))
-    const project = createProject({
-      id: `PJ${String(maxId + 1).padStart(3, "0")}`,
+    // The server assigns the id and builds the phase plan + payment schedule
+    const project = await actions.create({
       name: form.name.trim(),
       type: form.type,
       location: form.location.trim() || "-",
       areaSqm: Number(form.areaSqm) || 0,
-      value,
-      cost: Number(form.cost) * 1_000_000,
+      value: Math.round(value),
+      cost: Math.round(Number(form.cost) * 1_000_000),
       start: form.start,
       end: form.end,
       manager: form.manager.trim(),
     })
-    dispatch({ type: "project/add", project })
-    toast.success("สร้างโครงการแล้ว", { description: `${project.id} · แผนงาน ${project.phases.length} เฟส · ${project.installments.length} งวดเงิน` })
+    if (!project) return
+    toast.success(t("projects.new.created"), {
+      description: t("projects.new.createdDesc", { id: project.id, phases: project.phases.length, installments: project.installments.length }),
+    })
     onOpenChange(false)
     navigate(`/projects/${project.id}`)
   }
@@ -92,50 +93,50 @@ function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
       <DialogContent className="sm:max-w-2xl">
         <form onSubmit={submit} noValidate>
           <DialogHeader>
-            <DialogTitle>สร้างโครงการใหม่</DialogTitle>
-            <DialogDescription>ระบบจะสร้างแผนเฟสงานและงวดเงินตามประเภทงานให้อัตโนมัติ</DialogDescription>
+            <DialogTitle>{t("projects.new.title")}</DialogTitle>
+            <DialogDescription>{t("projects.new.description")}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-5 sm:grid-cols-2">
-            <FormItem label="ชื่อโครงการ" required htmlFor="p-name" error={errors.name} className="sm:col-span-2">
-              <Input id="p-name" aria-invalid={!!errors.name} value={form.name} placeholder="เช่น The Riverside Residence" onChange={(e) => set("name", e.target.value)} />
+            <FormItem label={t("projects.new.name")} required htmlFor="p-name" error={errors.name} className="sm:col-span-2">
+              <Input id="p-name" aria-invalid={!!errors.name} value={form.name} placeholder={t("projects.new.namePlaceholder")} onChange={(e) => set("name", e.target.value)} />
             </FormItem>
-            <FormItem label="ประเภทงาน" required>
+            <FormItem label={t("projects.new.type")} required>
               <Select value={form.type} onValueChange={(v) => set("type", v)}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(Object.keys(projectTypeLabel) as ProjectType[]).map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {projectTypeLabel[t]}
+                  {(Object.keys(projectTypeLabel) as ProjectType[]).map((pt) => (
+                    <SelectItem key={pt} value={pt}>
+                      {projectTypeLabel[pt]}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </FormItem>
-            <FormItem label="ผู้ดูแลโครงการ" required htmlFor="p-manager" error={errors.manager}>
-              <Input id="p-manager" aria-invalid={!!errors.manager} value={form.manager} placeholder="เช่น PM สมชาย" onChange={(e) => set("manager", e.target.value)} />
+            <FormItem label={t("projects.new.manager")} required htmlFor="p-manager" error={errors.manager}>
+              <Input id="p-manager" aria-invalid={!!errors.manager} value={form.manager} placeholder={t("projects.new.managerPlaceholder")} onChange={(e) => set("manager", e.target.value)} />
             </FormItem>
-            <FormItem label="มูลค่าสัญญา (ล้านบาท)" required htmlFor="p-value" error={errors.value}>
+            <FormItem label={t("projects.new.value")} required htmlFor="p-value" error={errors.value}>
               <Input id="p-value" type="number" min={0} step={0.1} aria-invalid={!!errors.value} value={form.value} onChange={(e) => set("value", e.target.value)} />
             </FormItem>
-            <FormItem label="งบต้นทุนวัสดุและผู้รับเหมา (ล้านบาท)" required htmlFor="p-cost" error={errors.cost}>
+            <FormItem label={t("projects.new.cost")} required htmlFor="p-cost" error={errors.cost}>
               <Input id="p-cost" type="number" min={0} step={0.1} aria-invalid={!!errors.cost} value={form.cost} onChange={(e) => set("cost", e.target.value)} />
             </FormItem>
-            <FormItem label="วันเริ่มสัญญา" required htmlFor="p-start">
+            <FormItem label={t("projects.new.start")} required htmlFor="p-start">
               <Input id="p-start" type="date" value={form.start} onChange={(e) => set("start", e.target.value)} />
             </FormItem>
-            <FormItem label="กำหนดแล้วเสร็จ" required htmlFor="p-end" error={errors.end}>
+            <FormItem label={t("projects.new.end")} required htmlFor="p-end" error={errors.end}>
               <Input id="p-end" type="date" aria-invalid={!!errors.end} value={form.end} onChange={(e) => set("end", e.target.value)} />
             </FormItem>
-            <FormItem label="ที่ตั้ง" htmlFor="p-loc">
+            <FormItem label={t("projects.new.location")} htmlFor="p-loc">
               <Input id="p-loc" value={form.location} onChange={(e) => set("location", e.target.value)} />
             </FormItem>
-            <FormItem label="พื้นที่ใช้สอย (ตร.ม.)" htmlFor="p-area">
+            <FormItem label={t("projects.new.area")} htmlFor="p-area">
               <Input id="p-area" type="number" min={0} value={form.areaSqm} onChange={(e) => set("areaSqm", e.target.value)} />
             </FormItem>
             <div className="rounded-lg border bg-muted/40 p-3 sm:col-span-2">
-              <p className="mb-2 text-sm font-medium">งวดเงินที่จะสร้าง</p>
+              <p className="mb-2 text-sm font-medium">{t("projects.new.schedule")}</p>
               <ul className="grid gap-1 text-xs sm:grid-cols-2">
                 {paymentSchedules[form.type].map(([title, pct, phase]) => (
                   <li key={title} className="flex justify-between gap-2">
@@ -153,9 +154,9 @@ function NewProjectDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              ยกเลิก
+              {t("common.cancel")}
             </Button>
-            <Button type="submit">สร้างโครงการ</Button>
+            <Button type="submit">{t("projects.create")}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -172,13 +173,15 @@ export default function ProjectsPage() {
   const [type, setType] = React.useState<"all" | ProjectType>("all")
   const [open, setOpen] = React.useState(false)
   const today = todayISO()
+  // Leaders and executives create projects (the API enforces the same rule)
+  const { canCreate } = useProjectActions()
 
   React.useEffect(() => {
-    if (params.get("new")) {
+    if (params.get("new") && canCreate) {
       setOpen(true)
       setParams({}, { replace: true })
     }
-  }, [params, setParams])
+  }, [params, setParams, canCreate])
 
   const active = rows.filter((r) => r.status !== "completed")
   const overdue = rows.reduce((s, r) => s + r.finance.overdue, 0)
@@ -194,26 +197,28 @@ export default function ProjectsPage() {
   return (
     <>
       <PageHeader
-        title="โครงการ"
-        description="ติดตามเฟสงาน งวดเงิน และใบเปลี่ยนแปลงงานของทุกโครงการ"
+        title={t("projects.title")}
+        description={t("projects.description")}
         actions={
-          <Button onClick={() => setOpen(true)}>
-            <PlusIcon /> สร้างโครงการ
-          </Button>
+          canCreate && (
+            <Button onClick={() => setOpen(true)}>
+              <PlusIcon /> {t("projects.create")}
+            </Button>
+          )
         }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="โครงการที่กำลังดำเนินการ" value={active.length} icon={BriefcaseIcon} hint={`จากทั้งหมด ${rows.length} โครงการ`} />
+        <StatCard label={t("projects.stat.active")} value={active.length} icon={BriefcaseIcon} hint={t("projects.stat.activeHint", { n: rows.length })} />
         <StatCard
-          label="มูลค่างานคงเหลือ (Backlog)"
+          label={t("projects.stat.backlog")}
           value={formatMillion(active.reduce((s, r) => s + r.finance.outstanding, 0))}
           icon={WalletIcon}
           tone="success"
-          hint="มูลค่าสัญญาที่ยังไม่ได้เก็บเงิน"
+          hint={t("projects.stat.backlogHint")}
         />
-        <StatCard label="งวดเงินเกินกำหนด" value={formatMillion(overdue)} icon={AlertTriangleIcon} tone="danger" hint={`${overdueCount} โครงการ`} />
-        <StatCard label="Change Order รออนุมัติ" value={pendingCo} icon={FileClockIcon} tone="warning" hint="รอลูกค้าตัดสินใจ" />
+        <StatCard label={t("projects.stat.overdue")} value={formatMillion(overdue)} icon={AlertTriangleIcon} tone="danger" hint={t("projects.stat.overdueHint", { n: overdueCount })} />
+        <StatCard label={t("projects.stat.pendingCo")} value={pendingCo} icon={FileClockIcon} tone="warning" hint={t("projects.stat.pendingCoHint")} />
       </div>
 
       <Card>
@@ -221,15 +226,15 @@ export default function ProjectsPage() {
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="relative sm:w-72">
               <SearchIcon className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input className="pl-8" placeholder="ค้นหาชื่อ รหัส หรือผู้ดูแล..." value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input className="pl-8" placeholder={t("projects.searchPlaceholder")} value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
             <Select value={status} onValueChange={(v) => setStatus(v as typeof status)}>
               <SelectTrigger className="sm:w-48">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="active">กำลังดำเนินการ</SelectItem>
-                <SelectItem value="all">ทั้งหมด</SelectItem>
+                <SelectItem value="active">{t("projects.filter.active")}</SelectItem>
+                <SelectItem value="all">{t("common.all")}</SelectItem>
                 {(Object.keys(projectStatusLabel) as ProjectStatus[]).map((s) => (
                   <SelectItem key={s} value={s}>
                     {projectStatusLabel[s]}
@@ -242,10 +247,10 @@ export default function ProjectsPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">ทุกประเภทงาน</SelectItem>
-                {(Object.keys(projectTypeLabel) as ProjectType[]).map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {projectTypeLabel[t]}
+                <SelectItem value="all">{t("projects.filter.allTypes")}</SelectItem>
+                {(Object.keys(projectTypeLabel) as ProjectType[]).map((pt) => (
+                  <SelectItem key={pt} value={pt}>
+                    {projectTypeLabel[pt]}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -256,12 +261,12 @@ export default function ProjectsPage() {
             <Table>
               <TableHeader className="bg-muted/60">
                 <TableRow>
-                  <TableHead>โครงการ</TableHead>
-                  <TableHead className="hidden md:table-cell">เฟสปัจจุบัน</TableHead>
-                  <TableHead className="hidden w-36 lg:table-cell">ความคืบหน้า</TableHead>
-                  <TableHead className="text-right">มูลค่าสัญญา</TableHead>
-                  <TableHead className="hidden w-36 sm:table-cell">เก็บเงินแล้ว</TableHead>
-                  <TableHead className="hidden xl:table-cell">งวดถัดไป</TableHead>
+                  <TableHead>{t("projects.col.project")}</TableHead>
+                  <TableHead className="hidden md:table-cell">{t("projects.col.currentPhase")}</TableHead>
+                  <TableHead className="hidden w-36 lg:table-cell">{t("projects.col.progress")}</TableHead>
+                  <TableHead className="text-right">{t("projects.col.contract")}</TableHead>
+                  <TableHead className="hidden w-36 sm:table-cell">{t("projects.col.collected")}</TableHead>
+                  <TableHead className="hidden xl:table-cell">{t("projects.col.nextInstallment")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -273,7 +278,7 @@ export default function ProjectsPage() {
                       <TableCell>
                         <div className="flex flex-wrap items-center gap-1.5">
                           <p className="font-medium">{p.name}</p>
-                          {f.overdue > 0 && <Tag type="danger">ค้างชำระ</Tag>}
+                          {f.overdue > 0 && <Tag type="danger">{t("projects.overdueTag")}</Tag>}
                           {f.pendingChangeOrders > 0 && <Tag type="warning">CO {f.pendingChangeOrders}</Tag>}
                         </div>
                         <p className="text-xs text-muted-foreground">
@@ -284,7 +289,7 @@ export default function ProjectsPage() {
                         {phase ? (
                           <>
                             <p className="text-sm">{phaseInfo[phase.key].label}</p>
-                            <p className="text-xs text-muted-foreground">ถึง {formatDate(phase.end, "d MMM yy")}</p>
+                            <p className="text-xs text-muted-foreground">{t("projects.phaseUntil", { date: formatDate(phase.end, "d MMM yy") })}</p>
                           </>
                         ) : (
                           <Tag type={projectStatusTag[st]} dot>
@@ -322,7 +327,7 @@ export default function ProjectsPage() {
                             </p>
                           </div>
                         ) : (
-                          <Tag type={installmentTag.paid}>เก็บครบแล้ว</Tag>
+                          <Tag type={installmentTag.paid}>{t("projects.fullyCollected")}</Tag>
                         )}
                       </TableCell>
                     </TableRow>
@@ -331,7 +336,7 @@ export default function ProjectsPage() {
                 {list.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={6}>
-                      <EmptyState title="ไม่พบโครงการ" />
+                      <EmptyState title={t("projects.notFound")} />
                     </TableCell>
                   </TableRow>
                 )}

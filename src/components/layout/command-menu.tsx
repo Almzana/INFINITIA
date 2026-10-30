@@ -14,12 +14,16 @@ import {
   CommandShortcut,
 } from "@/components/ui/command"
 import { useStore } from "@/lib/store"
+import { can, canSeePage } from "@/lib/access"
+import { useAuth } from "@/lib/auth"
+import { t } from "@/i18n"
 import { allNavItems } from "./nav"
 
 export function CommandMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const navigate = useNavigate()
   const { setTheme } = useTheme()
   const { state } = useStore()
+  const role = useAuth().user?.role
 
   React.useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -38,40 +42,44 @@ export function CommandMenu({ open, onOpenChange }: { open: boolean; onOpenChang
   }
 
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange} title="ค้นหา" description="ค้นหาเมนู พนักงาน หรือคำสั่ง">
+    <CommandDialog open={open} onOpenChange={onOpenChange} title={t("common.search")} description={t("layout.cmd.description")}>
       <Command>
-      <CommandInput placeholder="พิมพ์เพื่อค้นหาเมนู พนักงาน หรือคำสั่ง..." />
+      <CommandInput placeholder={t("layout.cmd.placeholder")} />
       <CommandList>
-        <CommandEmpty>ไม่พบผลลัพธ์</CommandEmpty>
-        <CommandGroup heading="เมนู">
-          {allNavItems.map((item) => (
-            <CommandItem key={item.url} value={`${item.title} ${item.keywords ?? ""}`} onSelect={() => run(() => navigate(item.url))}>
+        <CommandEmpty>{t("layout.cmd.empty")}</CommandEmpty>
+        <CommandGroup heading={t("common.menu")}>
+          {allNavItems.filter((i) => canSeePage(i.url, role)).map((item) => (
+            <CommandItem key={item.url} value={`${t(item.titleKey)} ${item.keywords ?? ""}`} onSelect={() => run(() => navigate(item.url))}>
               <item.icon />
-              {item.title}
+              {t(item.titleKey)}
             </CommandItem>
           ))}
         </CommandGroup>
         <CommandSeparator />
-        <CommandGroup heading="ทางลัด">
-          <CommandItem onSelect={() => run(() => navigate("/employees?new=1"))}>
-            <UserPlusIcon /> เพิ่มพนักงานใหม่
-          </CommandItem>
-          <CommandItem onSelect={() => run(() => navigate("/projects?new=1"))}>
-            <FolderPlusIcon /> สร้างโครงการใหม่
-          </CommandItem>
+        <CommandGroup heading={t("layout.cmd.shortcuts")}>
+          {can.manageEmployees(role) && (
+            <CommandItem onSelect={() => run(() => navigate("/employees?new=1"))}>
+              <UserPlusIcon /> {t("layout.cmd.newEmployee")}
+            </CommandItem>
+          )}
+          {can.viewProjects(role) && (
+            <CommandItem onSelect={() => run(() => navigate("/projects?new=1"))}>
+              <FolderPlusIcon /> {t("layout.cmd.newProject")}
+            </CommandItem>
+          )}
           <CommandItem onSelect={() => run(() => navigate("/leave?new=1"))}>
-            <CalendarPlusIcon /> ยื่นใบลา
+            <CalendarPlusIcon /> {t("layout.cmd.newLeave")}
           </CommandItem>
           <CommandItem onSelect={() => run(() => setTheme("light"))}>
-            <SunIcon /> โหมดสว่าง
+            <SunIcon /> {t("layout.cmd.lightMode")}
           </CommandItem>
           <CommandItem onSelect={() => run(() => setTheme("dark"))}>
-            <MoonIcon /> โหมดมืด
+            <MoonIcon /> {t("layout.cmd.darkMode")}
           </CommandItem>
         </CommandGroup>
         <CommandSeparator />
-        <CommandGroup heading="โครงการ">
-          {state.projects.map((p) => (
+        <CommandGroup heading={t("nav.projects")}>
+          {(can.viewProjects(role) ? state.projects : []).map((p) => (
             <CommandItem key={p.id} value={`${p.name} ${p.id} ${p.manager}`} onSelect={() => run(() => navigate(`/projects/${p.id}`))}>
               <BriefcaseIcon />
               {p.name}
@@ -80,7 +88,7 @@ export function CommandMenu({ open, onOpenChange }: { open: boolean; onOpenChang
           ))}
         </CommandGroup>
         <CommandSeparator />
-        <CommandGroup heading="พนักงาน">
+        <CommandGroup heading={t("nav.employees")}>
           {state.employees.slice(0, 40).map((e) => (
             <CommandItem
               key={e.id}

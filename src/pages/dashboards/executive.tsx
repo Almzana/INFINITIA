@@ -1,7 +1,7 @@
 import * as React from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { Bar, CartesianGrid, Cell, ComposedChart, Line, Pie, PieChart, XAxis, YAxis } from "recharts"
-import { differenceInCalendarDays, parseISO } from "date-fns"
+import { differenceInCalendarDays, format, parseISO } from "date-fns"
 import {
   AlertTriangleIcon,
   ArrowDownIcon,
@@ -22,11 +22,13 @@ import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { MyWorkSection } from "@/components/dashboard/my-work-section"
 import { EmptyState, PageHeader, StatCard } from "@/components/shared/misc"
 import { Tag } from "@/components/shared/tag"
 import { marginTone, type ProjectRow, projectStatusTag, useProjectRows } from "@/components/projects/shared"
 import { ANNUAL_TARGET, pipeline, type ProjectStatus, type ProjectType, projectStatusLabel, projectTypeLabel } from "@/data/projects"
-import { formatMillion, formatPercent, todayISO } from "@/lib/format"
+import { getLang, t } from "@/i18n"
+import { dateLocale, formatMillion, formatPercent, todayISO } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 const typeColors: Record<ProjectType, string> = {
@@ -36,13 +38,17 @@ const typeColors: Record<ProjectType, string> = {
   construction: "#a35f4f",
 }
 
+// Chart labels are getters so they are read in the current language at render time
 const billingConfig = {
-  paid: { label: "รับเงินจริง", color: "var(--chart-1)" },
-  scheduled: { label: "ตามแผนงวดเงิน", color: "var(--chart-2)" },
-  target: { label: "เป้าหมายรายเดือน", color: "var(--chart-4)" },
+  paid: { get label() { return t("dashboard.exec.chart.paid") }, color: "var(--chart-1)" },
+  scheduled: { get label() { return t("dashboard.exec.chart.scheduled") }, color: "var(--chart-2)" },
+  target: { get label() { return t("dashboard.exec.chart.target") }, color: "var(--chart-4)" },
 } satisfies ChartConfig
 
-const MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
+/** Short month names in the current language */
+const monthNames = () => Array.from({ length: 12 }, (_, i) => format(new Date(2000, i, 1), "MMM", { locale: dateLocale() }))
+/** Year values are Buddhist era; English shows the Gregorian year */
+const displayYear = (be: number | string) => (getLang() === "en" ? Number(be) - 543 : Number(be))
 const millionTick = (v: number) => `${Math.round(v / 1_000_000)}`
 
 type SortKey = "name" | "contract" | "profit" | "margin" | "progress"
@@ -99,7 +105,7 @@ export default function ExecutiveDashboard() {
 
   // Billing for the current calendar year, from installments (cash basis)
   const billing = React.useMemo(() => {
-    const months = MONTHS.map((month) => ({ month, paid: 0, scheduled: 0, target: ANNUAL_TARGET / 12 }))
+    const months = monthNames().map((month) => ({ month, paid: 0, scheduled: 0, target: ANNUAL_TARGET / 12 }))
     for (const { project } of allRows) {
       for (const i of project.installments) {
         if (i.dueDate.startsWith(thisYear)) months[Number(i.dueDate.slice(5, 7)) - 1].scheduled += i.amount
@@ -145,18 +151,18 @@ export default function ExecutiveDashboard() {
   return (
     <>
       <PageHeader
-        title="ภาพรวมผู้บริหาร"
-        description="ยอดขาย โครงการ และผลกำไรของ INFINI I.A. — คำนวณจากโมดูลโครงการ งวดเงิน Change Order และ Timesheet"
+        title={t("dashboard.exec.title")}
+        description={t("dashboard.exec.description")}
         actions={
           <Select value={year} onValueChange={setYear}>
             <SelectTrigger className="w-44 bg-background">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">ทุกปี (เซ็นสัญญา)</SelectItem>
+              <SelectItem value="all">{t("dashboard.exec.allYears")}</SelectItem>
               {yearsBE.map((y) => (
                 <SelectItem key={y} value={y}>
-                  เซ็นสัญญาปี {y}
+                  {t("dashboard.exec.signedYear", { y: displayYear(y) })}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -167,36 +173,39 @@ export default function ExecutiveDashboard() {
       <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
         <InfoIcon className="mt-0.5 size-4 shrink-0" />
         <p>
-          ชื่อโครงการมาจาก Portfolio บนเว็บไซต์บริษัท ส่วน<strong>ตัวเลขเริ่มต้นเป็นข้อมูลจำลอง</strong> — เมื่ออัปเดตเฟสงาน งวดเงิน Change Order หรือชั่วโมงงาน
-          ตัวเลขในหน้านี้จะเปลี่ยนตามทันที
+          {t("dashboard.exec.noticeBefore")}
+          <strong>{t("dashboard.exec.noticeStrong")}</strong>
+          {t("dashboard.exec.noticeAfter")}
         </p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="มูลค่าสัญญารวม"
+          label={t("dashboard.exec.stat.contract")}
           value={formatMillion(totals.contract)}
           icon={BriefcaseIcon}
-          hint={`${scoped.length} โครงการ · CO ${totals.changeOrders >= 0 ? "+" : ""}${formatMillion(totals.changeOrders)}`}
+          hint={t("dashboard.exec.stat.contractHint", { n: scoped.length, co: `${totals.changeOrders >= 0 ? "+" : ""}${formatMillion(totals.changeOrders)}` })}
         />
-        <StatCard label="กำไรขั้นต้นคาดการณ์" value={formatMillion(totals.profit)} icon={TrendingUpIcon} tone="success" hint={`อัตรากำไร ${formatPercent(totals.margin)} · หักค่าแรงออกแบบแล้ว`} />
-        <StatCard label="เก็บเงินแล้ว" value={formatMillion(totals.collected)} icon={BanknoteIcon} tone="warning" hint={`ค้างรับ ${formatMillion(totals.contract - totals.collected)}`} />
+        <StatCard label={t("dashboard.exec.stat.profit")} value={formatMillion(totals.profit)} icon={TrendingUpIcon} tone="success" hint={t("dashboard.exec.stat.profitHint", { margin: formatPercent(totals.margin) })} />
+        <StatCard label={t("dashboard.exec.stat.collected")} value={formatMillion(totals.collected)} icon={BanknoteIcon} tone="warning" hint={t("dashboard.exec.stat.receivable", { amount: formatMillion(totals.contract - totals.collected) })} />
         <StatCard
-          label="งวดเงินเกินกำหนด"
+          label={t("dashboard.exec.stat.overdue")}
           value={formatMillion(totals.overdue)}
           icon={AlertTriangleIcon}
           tone="danger"
-          hint={`${overdueItems.length} งวด · CO รออนุมัติ ${totals.pendingCo} · เสร็จแล้ว ${completed} โครงการ`}
+          hint={t("dashboard.exec.stat.overdueHint", { n: overdueItems.length, co: totals.pendingCo, done: completed })}
         />
       </div>
+
+      <MyWorkSection />
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>รายรับตามงวดเงิน ปี {Number(thisYear) + 543}</CardTitle>
-            <CardDescription>หน่วย: ล้านบาท · ทุกโครงการ (ไม่ขึ้นกับตัวกรองปี)</CardDescription>
+            <CardTitle>{t("dashboard.exec.billing", { y: displayYear(Number(thisYear) + 543) })}</CardTitle>
+            <CardDescription>{t("dashboard.exec.billingDesc")}</CardDescription>
             <CardAction className="text-right">
-              <p className="text-xs text-muted-foreground">รับแล้วปีนี้</p>
+              <p className="text-xs text-muted-foreground">{t("dashboard.exec.collectedYtd")}</p>
               <p className="font-semibold tabular-nums">{formatMillion(ytdCollected)}</p>
             </CardAction>
           </CardHeader>
@@ -229,8 +238,8 @@ export default function ExecutiveDashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle>เป้ารายรับปี {Number(thisYear) + 543}</CardTitle>
-            <CardDescription>เงินที่รับจริงเทียบเป้าทั้งปี</CardDescription>
+            <CardTitle>{t("dashboard.exec.target", { y: displayYear(Number(thisYear) + 543) })}</CardTitle>
+            <CardDescription>{t("dashboard.exec.targetDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="space-y-2">
@@ -239,28 +248,28 @@ export default function ExecutiveDashboard() {
                 <p className="text-right text-xs text-muted-foreground">
                   {formatMillion(ytdCollected, 0)}
                   <br />
-                  จาก {formatMillion(ANNUAL_TARGET, 0)}
+                  {t("dashboard.exec.of", { amount: formatMillion(ANNUAL_TARGET, 0) })}
                 </p>
               </div>
               <Progress value={Math.min(100, (ytdCollected / ANNUAL_TARGET) * 100)} className="h-2.5" />
               <p className="text-xs text-muted-foreground">
                 {ytdCollected >= ANNUAL_TARGET
-                  ? "ถึงเป้าแล้ว"
-                  : `เหลืออีก ${formatMillion(ANNUAL_TARGET - ytdCollected)}${monthsLeft > 0 ? ` ใน ${monthsLeft} เดือน` : ""}`}{" "}
-                · ต้นทุนแรงงานออกแบบรวม {formatMillion(totals.laborCost)}
+                  ? t("dashboard.exec.reached")
+                  : t("dashboard.exec.remaining", { amount: formatMillion(ANNUAL_TARGET - ytdCollected) }) + (monthsLeft > 0 ? t("dashboard.exec.inMonths", { n: monthsLeft }) : "")}{" "}
+                {t("dashboard.exec.laborCost", { amount: formatMillion(totals.laborCost) })}
               </p>
             </div>
             <Separator />
             <div className="space-y-2.5">
               <p className="text-sm font-medium">
-                Pipeline การขาย <span className="text-xs font-normal text-muted-foreground">(ตัวอย่าง — รอโมดูล CRM)</span>
+                {t("dashboard.exec.pipeline")} <span className="text-xs font-normal text-muted-foreground">{t("dashboard.exec.pipelineNote")}</span>
               </p>
               {pipeline.map((s, i) => (
                 <div key={s.stage} className="space-y-1">
                   <div className="flex justify-between text-xs">
                     <span className="text-muted-foreground">{s.stage}</span>
                     <span className="tabular-nums">
-                      {s.count} ราย{s.value > 0 && <span className="text-muted-foreground"> · {formatMillion(s.value, 0)}</span>}
+                      {t("dashboard.exec.clients", { n: s.count })}{s.value > 0 && <span className="text-muted-foreground"> · {formatMillion(s.value, 0)}</span>}
                     </span>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-muted">
@@ -276,11 +285,11 @@ export default function ExecutiveDashboard() {
       <div className="grid gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader>
-            <CardTitle>ต้องติดตาม</CardTitle>
-            <CardDescription>งวดเงินเกินกำหนดและ Change Order ที่รอลูกค้า</CardDescription>
+            <CardTitle>{t("dashboard.exec.followUp")}</CardTitle>
+            <CardDescription>{t("dashboard.exec.followUpDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {overdueItems.length === 0 && pendingCos.length === 0 && <EmptyState title="ไม่มีรายการค้าง 🎉" />}
+            {overdueItems.length === 0 && pendingCos.length === 0 && <EmptyState title={t("dashboard.exec.nothingPending")} />}
             {overdueItems.length > 0 && (
               <ul className="space-y-2">
                 {overdueItems.slice(0, 5).map(({ project, i, days }) => (
@@ -292,7 +301,7 @@ export default function ExecutiveDashboard() {
                       </span>
                       <span className="shrink-0 text-right">
                         <span className="block font-medium tabular-nums">{formatMillion(i.amount, 1)}</span>
-                        <span className="block text-xs text-destructive">เกิน {days} วัน</span>
+                        <span className="block text-xs text-destructive">{t("dashboard.exec.overdueDays", { n: days })}</span>
                       </span>
                     </Link>
                   </li>
@@ -322,8 +331,8 @@ export default function ExecutiveDashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle>มูลค่าตามประเภทงาน</CardTitle>
-            <CardDescription>สัดส่วนมูลค่าสัญญา (รวม CO)</CardDescription>
+            <CardTitle>{t("dashboard.exec.byType")}</CardTitle>
+            <CardDescription>{t("dashboard.exec.byTypeDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <ChartContainer config={typeConfig} className="mx-auto aspect-square h-44">
@@ -350,8 +359,8 @@ export default function ExecutiveDashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle>5 โครงการกำไรสูงสุด</CardTitle>
-            <CardDescription>หลังหักต้นทุนวัสดุ ผู้รับเหมา และค่าแรงออกแบบ</CardDescription>
+            <CardTitle>{t("dashboard.exec.top5")}</CardTitle>
+            <CardDescription>{t("dashboard.exec.top5Desc")}</CardDescription>
           </CardHeader>
           <CardContent>
             <ul className="space-y-3.5">
@@ -371,7 +380,7 @@ export default function ExecutiveDashboard() {
                   </Link>
                 </li>
               ))}
-              {top5.length === 0 && <EmptyState title="ไม่มีโครงการในปีที่เลือก" />}
+              {top5.length === 0 && <EmptyState title={t("dashboard.exec.noProjectsYear")} />}
             </ul>
           </CardContent>
         </Card>
@@ -379,12 +388,12 @@ export default function ExecutiveDashboard() {
 
       <Card>
         <CardHeader>
-          <CardTitle>โครงการทั้งหมด</CardTitle>
-          <CardDescription>คลิกที่โครงการเพื่อดูเฟสงาน งวดเงิน และ Change Order</CardDescription>
+          <CardTitle>{t("dashboard.exec.allProjects")}</CardTitle>
+          <CardDescription>{t("dashboard.exec.allProjectsDesc")}</CardDescription>
           <CardAction>
             <Button variant="link" asChild className="h-auto p-0">
               <Link to="/projects">
-                จัดการโครงการ <ArrowRightIcon />
+                {t("dashboard.exec.manageProjects")} <ArrowRightIcon />
               </Link>
             </Button>
           </CardAction>
@@ -393,14 +402,14 @@ export default function ExecutiveDashboard() {
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="relative sm:w-72">
               <SearchIcon className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input className="pl-8" placeholder="ค้นหาชื่อโครงการ..." value={q} onChange={(e) => setQ(e.target.value)} />
+              <Input className="pl-8" placeholder={t("dashboard.exec.searchPlaceholder")} value={q} onChange={(e) => setQ(e.target.value)} />
             </div>
             <Select value={status} onValueChange={(v) => setStatus(v as typeof status)}>
               <SelectTrigger className="sm:w-48">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">ทุกสถานะ</SelectItem>
+                <SelectItem value="all">{t("dashboard.exec.allStatuses")}</SelectItem>
                 {(Object.keys(projectStatusLabel) as ProjectStatus[]).map((s) => (
                   <SelectItem key={s} value={s}>
                     {projectStatusLabel[s]}
@@ -414,13 +423,13 @@ export default function ExecutiveDashboard() {
             <Table>
               <TableHeader className="bg-muted/60">
                 <TableRow>
-                  <SortHead sort={sort} onSort={onSort} k="name" label="โครงการ" />
-                  <TableHead className="hidden md:table-cell">สถานะ</TableHead>
-                  <SortHead sort={sort} onSort={onSort} k="contract" label="มูลค่าสัญญา" className="text-right" />
-                  <TableHead className="hidden text-right lg:table-cell">ต้นทุนรวม</TableHead>
-                  <SortHead sort={sort} onSort={onSort} k="profit" label="กำไร" className="text-right" />
-                  <SortHead sort={sort} onSort={onSort} k="margin" label="% กำไร" className="hidden text-right sm:table-cell" />
-                  <SortHead sort={sort} onSort={onSort} k="progress" label="ความคืบหน้า" className="hidden w-40 xl:table-cell" />
+                  <SortHead sort={sort} onSort={onSort} k="name" label={t("dashboard.exec.col.project")} />
+                  <TableHead className="hidden md:table-cell">{t("dashboard.exec.col.status")}</TableHead>
+                  <SortHead sort={sort} onSort={onSort} k="contract" label={t("dashboard.exec.col.contract")} className="text-right" />
+                  <TableHead className="hidden text-right lg:table-cell">{t("dashboard.exec.col.cost")}</TableHead>
+                  <SortHead sort={sort} onSort={onSort} k="profit" label={t("dashboard.exec.col.profit")} className="text-right" />
+                  <SortHead sort={sort} onSort={onSort} k="margin" label={t("dashboard.exec.col.margin")} className="hidden text-right sm:table-cell" />
+                  <SortHead sort={sort} onSort={onSort} k="progress" label={t("dashboard.exec.col.progress")} className="hidden w-40 xl:table-cell" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -452,7 +461,7 @@ export default function ExecutiveDashboard() {
                 {rows.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={7}>
-                      <EmptyState title="ไม่พบโครงการ" />
+                      <EmptyState title={t("dashboard.exec.noProjects")} />
                     </TableCell>
                   </TableRow>
                 )}
@@ -460,7 +469,7 @@ export default function ExecutiveDashboard() {
               {rows.length > 0 && (
                 <TableFooter>
                   <TableRow>
-                    <TableCell className="font-medium">รวม {rows.length} โครงการ</TableCell>
+                    <TableCell className="font-medium">{t("dashboard.exec.totalProjects", { n: rows.length })}</TableCell>
                     <TableCell className="hidden md:table-cell" />
                     <TableCell className="text-right font-semibold tabular-nums">{formatMillion(rowContract)}</TableCell>
                     <TableCell className="hidden text-right tabular-nums lg:table-cell">{formatMillion(rowCost)}</TableCell>

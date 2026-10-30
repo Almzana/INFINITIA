@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AuthProvider } from "@/lib/auth"
 import { StoreProvider } from "@/lib/store"
+import { LanguageProvider } from "@/i18n"
 import App from "./App"
 import "./index.css"
 
@@ -15,10 +16,12 @@ createRoot(document.getElementById("root")!).render(
       <BrowserRouter>
         <AuthProvider>
           <StoreProvider>
-            <TooltipProvider delayDuration={200}>
-              <App />
-              <Toaster position="top-center" richColors />
-            </TooltipProvider>
+            <LanguageProvider>
+              <TooltipProvider delayDuration={200}>
+                <App />
+                <Toaster position="top-center" richColors />
+              </TooltipProvider>
+            </LanguageProvider>
           </StoreProvider>
         </AuthProvider>
       </BrowserRouter>

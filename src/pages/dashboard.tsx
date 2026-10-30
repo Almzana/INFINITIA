@@ -9,37 +9,29 @@ import {
   DoorOpenIcon,
   MegaphoneIcon,
   PinIcon,
-  UserPlusIcon,
   UsersIcon,
 } from "lucide-react"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { EmployeeAvatar } from "@/components/shared/employee-avatar"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { type ChartConfig, ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { Tag } from "@/components/shared/tag"
+import { MyWorkSection } from "@/components/dashboard/my-work-section"
 import { PageHeader, StatCard } from "@/components/shared/misc"
-import { activities, departments, headcountTrend, leaveTypeLabel, rooms } from "@/data/mock"
+import { activities, departments, headcountTrend, leaveTypeLabel } from "@/data/mock"
+import { deptLabel, t } from "@/i18n"
 import { useAuth } from "@/lib/auth"
-import { formatDate, initials, todayISO } from "@/lib/format"
+import { formatDate, todayISO } from "@/lib/format"
 import { useEmployeeMap, useStore } from "@/lib/store"
-
-const trendConfig = {
-  headcount: { label: "จำนวนพนักงาน", color: "var(--chart-1)" },
-} satisfies ChartConfig
-
-const flowConfig = {
-  hires: { label: "เข้าใหม่", color: "var(--chart-2)" },
-  exits: { label: "ลาออก", color: "var(--chart-4)" },
-} satisfies ChartConfig
 
 // Earthy palette matching the INFINI I.A. brand
 const deptColors = ["#3a352e", "#b8a58a", "#8c8277", "#a35f4f", "#6b7f6a", "#d4c4ad", "#5d574f"]
 
 function greeting() {
   const h = new Date().getHours()
-  if (h < 12) return "สวัสดีตอนเช้า"
-  if (h < 17) return "สวัสดีตอนบ่าย"
-  return "สวัสดีตอนเย็น"
+  if (h < 12) return t("dashboard.greeting.morning")
+  if (h < 17) return t("dashboard.greeting.afternoon")
+  return t("dashboard.greeting.evening")
 }
 
 export default function DashboardPage() {
@@ -63,37 +55,43 @@ export default function DashboardPage() {
       })),
     [active],
   )
-  const deptConfig = Object.fromEntries(byDept.map((d) => [d.dept, { label: d.dept, color: d.fill }])) satisfies ChartConfig
+  const deptConfig = Object.fromEntries(byDept.map((d) => [d.dept, { label: deptLabel(d.dept), color: d.fill }])) satisfies ChartConfig
+  const trendConfig = {
+    headcount: { label: t("dashboard.home.headcount"), color: "var(--chart-1)" },
+  } satisfies ChartConfig
+  const flowConfig = {
+    hires: { label: t("dashboard.home.hires"), color: "var(--chart-2)" },
+    exits: { label: t("dashboard.home.exits"), color: "var(--chart-4)" },
+  } satisfies ChartConfig
 
   return (
     <>
       <PageHeader
         title={`${greeting()}, ${user?.name ?? ""} 👋`}
-        description={`วันนี้ ${formatDate(today, "EEEEที่ d MMMM yyyy")} — มีคำขอรออนุมัติ ${pending.length} รายการ`}
+        description={t("dashboard.home.description", { date: formatDate(today, t("dashboard.home.datePattern")), n: pending.length })}
         actions={
           <>
             <Button variant="outline" onClick={() => navigate("/leave?new=1")}>
-              <CalendarPlusIcon /> ยื่นใบลา
-            </Button>
-            <Button onClick={() => navigate("/employees?new=1")}>
-              <UserPlusIcon /> เพิ่มพนักงาน
+              <CalendarPlusIcon /> {t("dashboard.home.requestLeave")}
             </Button>
           </>
         }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="พนักงานทั้งหมด" value={active.length} icon={UsersIcon} trend={4.9} hint="จากเดือนที่แล้ว" />
-        <StatCard label="รออนุมัติการลา" value={pending.length} icon={ClockIcon} tone="warning" hint="ต้องดำเนินการ" />
-        <StatCard label="ลาพักวันนี้" value={onLeaveToday} icon={CalendarCheckIcon} tone="danger" trend={-12} hint="จากสัปดาห์ก่อน" />
-        <StatCard label="การจองห้องวันนี้" value={todayBookings.length} icon={DoorOpenIcon} tone="success" hint={`จาก ${rooms.length} ห้อง`} />
+        <StatCard label={t("dashboard.home.stat.employees")} value={active.length} icon={UsersIcon} trend={4.9} hint={t("dashboard.home.stat.fromLastMonth")} />
+        <StatCard label={t("dashboard.home.stat.pendingLeave")} value={pending.length} icon={ClockIcon} tone="warning" hint={t("dashboard.home.stat.actionNeeded")} />
+        <StatCard label={t("dashboard.home.stat.onLeave")} value={onLeaveToday} icon={CalendarCheckIcon} tone="danger" trend={-12} hint={t("dashboard.home.stat.fromLastWeek")} />
+        <StatCard label={t("dashboard.home.stat.bookings")} value={todayBookings.length} icon={DoorOpenIcon} tone="success" hint={t("dashboard.home.stat.ofRooms", { n: state.rooms.length })} />
       </div>
+
+      <MyWorkSection />
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>จำนวนพนักงาน</CardTitle>
-            <CardDescription>แนวโน้มย้อนหลัง 6 เดือน</CardDescription>
+            <CardTitle>{t("dashboard.home.headcount")}</CardTitle>
+            <CardDescription>{t("dashboard.home.headcountDesc")}</CardDescription>
           </CardHeader>
           <CardContent>
             <ChartContainer config={trendConfig} className="h-64 w-full">
@@ -116,8 +114,8 @@ export default function DashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>สัดส่วนตามฝ่าย</CardTitle>
-            <CardDescription>พนักงานที่ยังทำงานอยู่</CardDescription>
+            <CardTitle>{t("dashboard.home.byDept")}</CardTitle>
+            <CardDescription>{t("dashboard.home.byDeptDesc")}</CardDescription>
           </CardHeader>
           <CardContent>
             <ChartContainer config={deptConfig} className="mx-auto h-48 w-full">
@@ -134,7 +132,7 @@ export default function DashboardPage() {
               {byDept.map((d) => (
                 <li key={d.dept} className="flex items-center gap-2">
                   <span className="size-2 rounded-full" style={{ background: d.fill }} />
-                  <span className="truncate text-muted-foreground">{d.dept}</span>
+                  <span className="truncate text-muted-foreground">{deptLabel(d.dept)}</span>
                   <span className="ml-auto font-medium tabular-nums">{d.value}</span>
                 </li>
               ))}
@@ -146,12 +144,12 @@ export default function DashboardPage() {
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>คำขอลารออนุมัติ</CardTitle>
-            <CardDescription>รายการล่าสุดที่ต้องพิจารณา</CardDescription>
+            <CardTitle>{t("dashboard.home.pendingLeave")}</CardTitle>
+            <CardDescription>{t("dashboard.home.pendingLeaveDesc")}</CardDescription>
             <CardAction>
               <Button variant="link" asChild className="h-auto p-0">
                 <Link to="/leave">
-                  ดูทั้งหมด <ArrowRightIcon />
+                  {t("common.viewAll")} <ArrowRightIcon />
                 </Link>
               </Button>
             </CardAction>
@@ -162,30 +160,28 @@ export default function DashboardPage() {
                 const emp = employeeMap.get(l.employeeId)
                 return (
                   <li key={l.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
-                    <Avatar className="size-9">
-                      <AvatarFallback className="bg-primary/10 text-primary">{emp ? initials(emp.firstName, emp.lastName) : "?"}</AvatarFallback>
-                    </Avatar>
+                    <EmployeeAvatar person={emp} className="size-9" fallbackClassName="" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">
                         {emp?.firstName} {emp?.lastName}
                       </p>
                       <p className="truncate text-xs text-muted-foreground">
-                        {formatDate(l.from)} · {l.days} วัน · {l.reason}
+                        {formatDate(l.from)} · {t("common.days", { n: l.days })} · {l.reason}
                       </p>
                     </div>
                     <Tag type={l.type === "sick" ? "danger" : l.type === "vacation" ? "primary" : "warning"}>{leaveTypeLabel[l.type]}</Tag>
                   </li>
                 )
               })}
-              {pending.length === 0 && <li className="py-6 text-center text-sm text-muted-foreground">ไม่มีคำขอค้างอยู่ 🎉</li>}
+              {pending.length === 0 && <li className="py-6 text-center text-sm text-muted-foreground">{t("dashboard.home.noPending")}</li>}
             </ul>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>เข้าใหม่ / ลาออก</CardTitle>
-            <CardDescription>รายเดือน</CardDescription>
+            <CardTitle>{t("dashboard.home.flow")}</CardTitle>
+            <CardDescription>{t("dashboard.home.monthly")}</CardDescription>
           </CardHeader>
           <CardContent>
             <ChartContainer config={flowConfig} className="h-56 w-full">
@@ -206,11 +202,11 @@ export default function DashboardPage() {
       <div className="grid gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader>
-            <CardTitle>ห้องประชุมวันนี้</CardTitle>
+            <CardTitle>{t("dashboard.home.roomsToday")}</CardTitle>
             <CardAction>
               <Button variant="link" asChild className="h-auto p-0">
                 <Link to="/rooms">
-                  จองห้อง <ArrowRightIcon />
+                  {t("dashboard.home.bookRoom")} <ArrowRightIcon />
                 </Link>
               </Button>
             </CardAction>
@@ -226,7 +222,7 @@ export default function DashboardPage() {
                     <div className="min-w-0 border-l-2 border-primary/40 pl-3">
                       <p className="truncate font-medium">{b.title}</p>
                       <p className="truncate text-xs text-muted-foreground">
-                        {rooms.find((r) => r.id === b.roomId)?.name} · {b.start}–{b.end}
+                        {state.rooms.find((r) => r.id === b.roomId)?.name} · {b.start}–{b.end}
                       </p>
                     </div>
                   </li>
@@ -237,11 +233,11 @@ export default function DashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>ประกาศล่าสุด</CardTitle>
+            <CardTitle>{t("dashboard.home.announcements")}</CardTitle>
             <CardAction>
               <Button variant="link" asChild className="h-auto p-0">
                 <Link to="/announcements">
-                  ทั้งหมด <ArrowRightIcon />
+                  {t("common.all")} <ArrowRightIcon />
                 </Link>
               </Button>
             </CardAction>
@@ -267,7 +263,7 @@ export default function DashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>กิจกรรมล่าสุด</CardTitle>
+            <CardTitle>{t("dashboard.home.activity")}</CardTitle>
           </CardHeader>
           <CardContent>
             <ol className="relative space-y-4 border-l pl-4">

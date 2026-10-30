@@ -13,7 +13,12 @@ const TimesheetPage = lazy(() => import("@/pages/timesheet"))
 const RoomsPage = lazy(() => import("@/pages/rooms"))
 const AnnouncementsPage = lazy(() => import("@/pages/announcements"))
 const SettingsPage = lazy(() => import("@/pages/settings"))
+const AuditPage = lazy(() => import("@/pages/audit"))
+const ChangePasswordPage = lazy(() => import("@/pages/change-password"))
+const ForgotPasswordPage = lazy(() => import("@/pages/forgot-password"))
+const ResetPasswordPage = lazy(() => import("@/pages/reset-password"))
 const NotFoundPage = lazy(() => import("@/pages/not-found"))
+const DevConsolePage = lazy(() => import("@/pages/dev"))
 
 function PageFallback() {
   return (
@@ -35,6 +40,12 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      {/* Outside the app shell: reachable signed out (forgot / reset) or before the first password change */}
+      <Route path="/forgot-password" element={page(<ForgotPasswordPage />)} />
+      <Route path="/reset-password" element={page(<ResetPasswordPage />)} />
+      <Route path="/change-password" element={page(<ChangePasswordPage />)} />
+      {/* Developer console: its own full-screen layout; the server only serves its data in dev / test */}
+      <Route path="/dev" element={page(<DevConsolePage />)} />
       <Route element={<AppLayout />}>
         <Route index element={page(<DashboardPage />)} />
         <Route path="employees" element={page(<EmployeesPage />)} />
@@ -45,6 +56,7 @@ export default function App() {
         <Route path="rooms" element={page(<RoomsPage />)} />
         <Route path="announcements" element={page(<AnnouncementsPage />)} />
         <Route path="settings" element={page(<SettingsPage />)} />
+        <Route path="audit" element={page(<AuditPage />)} />
         <Route path="*" element={page(<NotFoundPage />)} />
       </Route>
     </Routes>

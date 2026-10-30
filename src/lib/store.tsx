@@ -1,71 +1,58 @@
 import * as React from "react"
-import { addDays, format } from "date-fns"
+import { useAuth } from "@/lib/auth"
 import {
-  announcements as seedAnnouncements,
-  bookings as seedBookings,
-  employees as seedEmployees,
-  leaveRequests as seedLeaves,
   type Announcement,
   type Booking,
+  type Room,
   type Employee,
   type LeaveRequest,
-  type LeaveStatus,
 } from "@/data/mock"
-import {
-  type ChangeOrder,
-  type InstallmentStatus,
-  isTriggered,
-  type PhaseKey,
-  type Project,
-  seedProjects,
-} from "@/data/projects"
-import { seedTimesheet, type TimeEntry } from "@/data/timesheet"
-import { todayISO } from "@/lib/format"
+import type { Project } from "@/data/projects"
+import type { TimeEntry } from "@/data/timesheet"
 
 interface State {
   employees: Employee[]
   leaves: LeaveRequest[]
   announcements: Announcement[]
+  rooms: Room[]
   bookings: Booking[]
   projects: Project[]
   timesheet: TimeEntry[]
 }
 
 type Action =
+  | { type: "employee/replace"; employees: Employee[] }
   | { type: "employee/upsert"; employee: Employee }
   | { type: "employee/delete"; ids: string[] }
-  | { type: "leave/add"; leave: LeaveRequest }
-  | { type: "leave/status"; ids: string[]; status: LeaveStatus }
-  | { type: "announcement/add"; announcement: Announcement }
-  | { type: "announcement/pin"; id: string }
+  | { type: "leave/replace"; leaves: LeaveRequest[] }
+  | { type: "leave/upsertMany"; leaves: LeaveRequest[] }
+  | { type: "announcement/replace"; announcements: Announcement[] }
+  | { type: "announcement/upsert"; announcement: Announcement }
   | { type: "announcement/delete"; id: string }
-  | { type: "booking/add"; booking: Booking }
+  | { type: "room/replace"; rooms: Room[] }
+  | { type: "booking/replaceRange"; from: string; to: string; bookings: Booking[] }
+  | { type: "booking/upsert"; booking: Booking }
   | { type: "booking/delete"; id: string }
-  | { type: "project/add"; project: Project }
-  | { type: "project/phase"; projectId: string; phase: PhaseKey; progress: number }
-  | { type: "installment/status"; projectId: string; installmentId: string; status: InstallmentStatus }
-  | { type: "changeOrder/add"; projectId: string; changeOrder: ChangeOrder }
-  | { type: "changeOrder/decide"; projectId: string; changeOrderId: string; status: "approved" | "rejected" }
-  | { type: "timesheet/week"; employeeId: string; from: string; to: string; entries: TimeEntry[] }
+  | { type: "project/replace"; projects: Project[] }
+  | { type: "project/upsert"; project: Project }
+  /** employeeId null = everyone's entries in the range are replaced */
+  | { type: "timesheet/replaceRange"; employeeId: string | null; from: string; to: string; entries: TimeEntry[] }
   | { type: "reset" }
 
-const STORAGE_KEY = "hr-portal-state-v3"
-const seed: State = {
-  employees: seedEmployees,
-  leaves: seedLeaves,
-  announcements: seedAnnouncements,
-  bookings: seedBookings,
-  projects: seedProjects,
-  timesheet: seedTimesheet(seedEmployees, seedProjects),
-}
+/**
+ * Company data lives in the API. The store is an in-memory cache filled by useDataSync, starting empty
+ * and never written to localStorage, so nothing (salaries, leave, ...) outlives the session in the browser.
+ */
+const empty: State = { employees: [], leaves: [], announcements: [], rooms: [], bookings: [], projects: [], timesheet: [] }
 
-const updateProject = (state: State, id: string, fn: (p: Project) => Project): State => ({
-  ...state,
-  projects: state.projects.map((p) => (p.id === id ? fn(p) : p)),
-})
+// Older versions cached the whole store in localStorage; remove it so it cannot leak to the next user
+const LEGACY_KEYS = ["hr-portal-state-v3", "hr-portal-state-v2", "hr-portal-state"]
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
+    // Employees come from the API (useDataSync)
+    case "employee/replace":
+      return { ...state, employees: action.employees }
     case "employee/upsert": {
       const exists = state.employees.some((e) => e.id === action.employee.id)
       return {
@@ -77,100 +64,85 @@ function reducer(state: State, action: Action): State {
     }
     case "employee/delete":
       return { ...state, employees: state.employees.filter((e) => !action.ids.includes(e.id)) }
-    case "leave/add":
-      return { ...state, leaves: [action.leave, ...state.leaves] }
-    case "leave/status":
-      return { ...state, leaves: state.leaves.map((l) => (action.ids.includes(l.id) ? { ...l, status: action.status } : l)) }
-    case "announcement/add":
-      return { ...state, announcements: [action.announcement, ...state.announcements] }
-    case "announcement/pin":
-      return { ...state, announcements: state.announcements.map((a) => (a.id === action.id ? { ...a, pinned: !a.pinned } : a)) }
+    // Leaves come from the API (useDataSync); the server scopes them to what this user may see
+    case "leave/replace":
+      return { ...state, leaves: action.leaves }
+    case "leave/upsertMany": {
+      const ids = new Set(action.leaves.map((l) => l.id))
+      return { ...state, leaves: [...action.leaves, ...state.leaves.filter((l) => !ids.has(l.id))] }
+    }
+    // Announcements come from the API (useDataSync); writes go through the API first
+    case "announcement/replace":
+      return { ...state, announcements: action.announcements }
+    case "announcement/upsert": {
+      const others = state.announcements.filter((a) => a.id !== action.announcement.id)
+      return { ...state, announcements: [action.announcement, ...others] }
+    }
     case "announcement/delete":
       return { ...state, announcements: state.announcements.filter((a) => a.id !== action.id) }
-    case "booking/add":
-      return { ...state, bookings: [...state.bookings, action.booking] }
+    // Rooms and meetings come from the API (see useDataSync / useWeekMeetings)
+    case "room/replace":
+      return { ...state, rooms: action.rooms }
+    case "booking/replaceRange":
+      return {
+        ...state,
+        // Also drop older copies of these meetings outside the range (a meeting moved to another day)
+        bookings: [
+          ...state.bookings.filter((b) => (b.date < action.from || b.date > action.to) && !action.bookings.some((n) => n.id === b.id)),
+          ...action.bookings,
+        ],
+      }
+    case "booking/upsert": {
+      const others = state.bookings.filter((b) => b.id !== action.booking.id)
+      return { ...state, bookings: [...others, action.booking] }
+    }
     case "booking/delete":
       return { ...state, bookings: state.bookings.filter((b) => b.id !== action.id) }
-    case "project/add":
-      return { ...state, projects: [action.project, ...state.projects] }
-    case "project/phase":
-      return updateProject(state, action.projectId, (p) => {
-        const phases = p.phases.map((ph) => (ph.key === action.phase ? { ...ph, progress: action.progress } : ph))
-        // Auto-bill: installments whose trigger is now reached move from pending to invoiced
-        const installments = p.installments.map((i) => (i.status === "pending" && isTriggered(phases, i) ? { ...i, status: "invoiced" as const } : i))
-        return { ...p, phases, installments }
-      })
-    case "installment/status":
-      return updateProject(state, action.projectId, (p) => ({
-        ...p,
-        installments: p.installments.map((i) =>
-          i.id === action.installmentId ? { ...i, status: action.status, paidDate: action.status === "paid" ? todayISO() : undefined } : i,
-        ),
-      }))
-    case "changeOrder/add":
-      return updateProject(state, action.projectId, (p) => ({ ...p, changeOrders: [...p.changeOrders, action.changeOrder] }))
-    case "changeOrder/decide":
-      return updateProject(state, action.projectId, (p) => {
-        const today = todayISO()
-        const co = p.changeOrders.find((c) => c.id === action.changeOrderId)
-        if (!co || co.status !== "pending") return p
-        const changeOrders = p.changeOrders.map((c) => (c.id === co.id ? { ...c, status: action.status, decidedDate: today } : c))
-        // An approved change order with a price is billed as its own installment
-        const installments =
-          action.status === "approved" && co.amount !== 0
-            ? [
-                ...p.installments,
-                {
-                  id: `${p.id}-I-${co.id}`,
-                  title: co.amount > 0 ? `งานเพิ่ม: ${co.title}` : `ลดงาน: ${co.title}`,
-                  amount: co.amount,
-                  phase: null,
-                  atProgress: 0,
-                  dueDate: format(addDays(new Date(), 30), "yyyy-MM-dd"),
-                  status: "invoiced" as const,
-                  changeOrderId: co.id,
-                },
-              ]
-            : p.installments
-        return { ...p, changeOrders, installments }
-      })
-    case "timesheet/week":
+    // Projects come from the API (useDataSync); billing rules run on the server
+    case "project/replace":
+      return { ...state, projects: action.projects }
+    case "project/upsert": {
+      const exists = state.projects.some((p) => p.id === action.project.id)
+      return {
+        ...state,
+        projects: exists ? state.projects.map((p) => (p.id === action.project.id ? action.project : p)) : [...state.projects, action.project],
+      }
+    }
+    case "timesheet/replaceRange":
       return {
         ...state,
         timesheet: [
-          ...state.timesheet.filter((t) => !(t.employeeId === action.employeeId && t.date >= action.from && t.date <= action.to)),
+          ...state.timesheet.filter(
+            (t) => !((action.employeeId === null || t.employeeId === action.employeeId) && t.date >= action.from && t.date <= action.to),
+          ),
           ...action.entries,
         ],
       }
     case "reset":
-      return seed
+      return empty
   }
 }
 
-function load(): State {
+function clearLegacyCache() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return { ...seed, ...JSON.parse(raw) }
+    for (const k of LEGACY_KEYS) localStorage.removeItem(k)
   } catch {
     /* storage unavailable */
   }
-  return seed
 }
 
 const StoreContext = React.createContext<{ state: State; dispatch: React.Dispatch<Action> } | null>(null)
 
-export function StoreProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = React.useReducer(reducer, undefined, load)
-
-  React.useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-    } catch {
-      /* storage unavailable */
-    }
-  }, [state])
-
+function UserStore({ children }: { children: React.ReactNode }) {
+  const [state, dispatch] = React.useReducer(reducer, empty)
+  React.useEffect(clearLegacyCache, [])
   return <StoreContext.Provider value={{ state, dispatch }}>{children}</StoreContext.Provider>
+}
+
+/** A fresh store per signed-in user: logging out or switching user drops everything the previous one loaded. */
+export function StoreProvider({ children }: { children: React.ReactNode }) {
+  const email = useAuth().user?.email ?? "signed-out"
+  return <UserStore key={email}>{children}</UserStore>
 }
 
 export function useStore() {
@@ -189,9 +161,11 @@ export function useProjectHours() {
   const { state } = useStore()
   return React.useMemo(() => {
     const m = new Map<string, number>()
-    for (const t of state.timesheet) m.set(t.projectId, (m.get(t.projectId) ?? 0) + t.hours)
+    // Prefer the server total (all people); the loaded entries may be only my own
+    for (const p of state.projects) if (p.loggedHours !== undefined) m.set(p.id, p.loggedHours)
+    for (const t of state.timesheet) if (!state.projects.some((p) => p.id === t.projectId && p.loggedHours !== undefined)) m.set(t.projectId, (m.get(t.projectId) ?? 0) + t.hours)
     return m
-  }, [state.timesheet])
+  }, [state.timesheet, state.projects])
 }
 
 export const newId = () => Math.random().toString(36).slice(2, 10)

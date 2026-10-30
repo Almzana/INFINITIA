@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
+import { t } from "@/i18n"
 
 function pageList(current: number, total: number): (number | "gap")[] {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
@@ -34,7 +35,7 @@ export function ElPagination({
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
       <span>
-        ทั้งหมด <span className="font-medium text-foreground">{total}</span> รายการ
+        {t("shared.pager.totalPrefix")} <span className="font-medium text-foreground">{total}</span> {t("shared.pager.totalSuffix")}
       </span>
       <div className="flex flex-wrap items-center gap-2">
         <Select value={String(pageSize)} onValueChange={(v) => onPageSizeChange(Number(v))}>
@@ -44,12 +45,12 @@ export function ElPagination({
           <SelectContent>
             {pageSizes.map((s) => (
               <SelectItem key={s} value={String(s)}>
-                {s} / หน้า
+                {t("shared.pager.perPage", { n: s })}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        <Button variant="ghost" size="icon-sm" disabled={page <= 1} onClick={() => onPageChange(page - 1)} aria-label="หน้าก่อนหน้า">
+        <Button variant="ghost" size="icon-sm" disabled={page <= 1} onClick={() => onPageChange(page - 1)} aria-label={t("shared.pager.prev")}>
           <ChevronLeftIcon />
         </Button>
         <div className="hidden items-center gap-1 sm:flex">
@@ -73,11 +74,11 @@ export function ElPagination({
         <span className="sm:hidden">
           {page} / {pageCount}
         </span>
-        <Button variant="ghost" size="icon-sm" disabled={page >= pageCount} onClick={() => onPageChange(page + 1)} aria-label="หน้าถัดไป">
+        <Button variant="ghost" size="icon-sm" disabled={page >= pageCount} onClick={() => onPageChange(page + 1)} aria-label={t("shared.pager.next")}>
           <ChevronRightIcon />
         </Button>
         <span className="hidden items-center gap-1.5 md:flex">
-          ไปที่
+          {t("shared.pager.goTo")}
           <Input
             className="h-7 w-12 text-center"
             value={jump}
@@ -89,7 +90,7 @@ export function ElPagination({
               }
             }}
           />
-          หน้า
+          {t("shared.pager.page")}
         </span>
       </div>
     </div>

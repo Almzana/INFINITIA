@@ -1,15 +1,13 @@
 import * as React from "react"
 import { NavLink, useLocation, useNavigate } from "react-router-dom"
-import { ChevronsUpDownIcon, LogOutIcon, SettingsIcon, UserIcon } from "lucide-react"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { ChevronsUpDownIcon, LogOutIcon, SettingsIcon, TerminalSquareIcon, UserIcon } from "lucide-react"
+import { EmployeeAvatar } from "@/components/shared/employee-avatar"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -27,15 +25,15 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { BrandMark, Wordmark } from "@/components/shared/brand"
-import { type Role, roleLabel, useAuth } from "@/lib/auth"
-import { initials } from "@/lib/format"
+import { deptLabel, t } from "@/i18n"
+import { roleLabel, useAuth } from "@/lib/auth"
 import { useStore } from "@/lib/store"
-import { findNav, navGroups } from "./nav"
+import { findNav, navGroupsFor } from "./nav"
 
 export function AppSidebar() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
-  const { user, logout, switchRole } = useAuth()
+  const { user, logout } = useAuth()
   const { state } = useStore()
   const active = findNav(pathname)
   const { isMobile, setOpenMobile } = useSidebar()
@@ -44,7 +42,9 @@ export function AppSidebar() {
   React.useEffect(() => {
     if (isMobile) setOpenMobile(false)
   }, [pathname, isMobile, setOpenMobile])
-  const pendingLeaves = state.leaves.filter((l) => l.status === "pending").length
+  // Badge = requests waiting for me; only approvers have any
+  // Requests waiting for me: as Leader, HR or executive (the API marks them)
+  const pendingLeaves = state.leaves.filter((l) => l.canDecide).length
 
   return (
     <Sidebar collapsible="icon">
@@ -56,7 +56,7 @@ export function AppSidebar() {
                 <BrandMark />
                 <div className="grid flex-1 text-left leading-tight">
                   <Wordmark className="truncate text-sm" />
-                  <span className="truncate text-xs text-muted-foreground">ระบบภายในองค์กร</span>
+                  <span className="truncate text-xs text-muted-foreground">{t("layout.tagline")}</span>
                 </div>
               </NavLink>
             </SidebarMenuButton>
@@ -65,16 +65,16 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        {navGroups.map((group) => (
-          <SidebarGroup key={group.label}>
-            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+        {navGroupsFor(user?.role).map((group) => (
+          <SidebarGroup key={group.labelKey}>
+            <SidebarGroupLabel>{t(group.labelKey)}</SidebarGroupLabel>
             <SidebarMenu>
               {group.items.map((item) => (
                 <SidebarMenuItem key={item.url}>
-                  <SidebarMenuButton asChild isActive={active?.url === item.url} tooltip={item.title}>
+                  <SidebarMenuButton asChild isActive={active?.url === item.url} tooltip={t(item.titleKey)}>
                     <NavLink to={item.url}>
                       <item.icon />
-                      <span>{item.title}</span>
+                      <span>{t(item.titleKey)}</span>
                     </NavLink>
                   </SidebarMenuButton>
                   {item.url === "/leave" && pendingLeaves > 0 && (
@@ -93,9 +93,12 @@ export function AppSidebar() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <SidebarMenuButton size="lg" className="data-[state=open]:bg-sidebar-accent">
-                  <Avatar className="size-8 rounded-lg">
-                    <AvatarFallback className="rounded-lg bg-primary/10 text-primary">{user ? initials(user.name.replace(/s.*/, ""), user.name.split(" ")[1]) : "?"}</AvatarFallback>
-                  </Avatar>
+                  <EmployeeAvatar
+                    person={state.employees.find((e) => e.id === user?.employeeId)}
+                    name={user?.name}
+                    className="size-8 rounded-lg"
+                    fallbackClassName="rounded-lg"
+                  />
                   <div className="grid flex-1 text-left leading-tight">
                     <span className="truncate font-medium">{user?.name}</span>
                     <span className="truncate text-xs text-muted-foreground">{user?.email}</span>
@@ -107,34 +110,24 @@ export function AppSidebar() {
                 <DropdownMenuLabel className="font-normal">
                   <p className="font-medium">{user?.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {user && roleLabel[user.role]} · {user?.department}
+                    {user && roleLabel[user.role]} · {user && deptLabel(user.department)}
                   </p>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">สลับบทบาท (โหมดสาธิต)</DropdownMenuLabel>
-                <DropdownMenuRadioGroup
-                  value={user?.role}
-                  onValueChange={(r) => {
-                    switchRole(r as Role)
-                    navigate("/")
-                  }}
-                >
-                  {(Object.keys(roleLabel) as Role[]).map((r) => (
-                    <DropdownMenuRadioItem key={r} value={r}>
-                      {roleLabel[r]}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => navigate("/settings")}>
-                  <UserIcon /> โปรไฟล์ของฉัน
+                  <UserIcon /> {t("layout.myProfile")}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => navigate("/settings")}>
-                  <SettingsIcon /> ตั้งค่า
+                  <SettingsIcon /> {t("nav.settings")}
                 </DropdownMenuItem>
+                {user?.isDeveloper && (
+                  <DropdownMenuItem onClick={() => navigate("/dev")}>
+                    <TerminalSquareIcon /> {t("dev.title")}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem variant="destructive" onClick={logout}>
-                  <LogOutIcon /> ออกจากระบบ
+                  <LogOutIcon /> {t("layout.logout")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

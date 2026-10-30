@@ -8,4 +8,8 @@ export default defineConfig({
   resolve: {
     alias: { '@': path.resolve(import.meta.dirname, './src') },
   },
+  // In dev, forward /api to the local Fastify server (see server/)
+  server: {
+    proxy: { '/api': 'http://localhost:3001' },
+  },
 })
